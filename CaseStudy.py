@@ -115,8 +115,12 @@ def clean_and_engineer_features(df):
     df["has_connection"] = (~df["flight_number_2"].isna()).astype(int)
 
     # 4. Handle missing values in numeric columns
-    df["layover_time"] = df["layover_time"].fillna(0)
-    df["age"] = df["age"].fillna(df["age"].median())
+    df["layover_time"] = df["layover_time"].fillna(
+        0
+    )  # Irrelevant since there are no missing layover_time
+    df["age"] = df["age"].fillna(
+        df["age"].median()
+    )  # Irrelevant since there are no missing birth_date
 
     # 5. Create layover time categories
     df["layover_category"] = pd.cut(
@@ -142,7 +146,7 @@ def perform_eda(df_eu):
     print("EXPLORATORY DATA ANALYSIS")
     print("=" * 80)
 
-    # Spending distribution
+    # Spending category distribution in percentage
     print("\n1. Spending Category Distribution:")
     print(df_eu["amount_spent_cat"].value_counts().sort_index())
     print(f"\nPercentages:")
