@@ -1,0 +1,15 @@
+# Virtual environment
+.venv/
+
+# Data files
+raw/*.csv
+processed/*.csv
+outputs/*.csv
+
+# Models
+models/*.pkl
+processed/*.pkl
+
+# System files
+__pycache__/
+*.pyc

@@ -1,5 +1,9 @@
+import pickle
+
 from scipy import stats
 import warnings
+
+from sklearn.preprocessing import LabelEncoder, MinMaxScaler
 
 warnings.filterwarnings("ignore")
 
@@ -335,50 +339,381 @@ def perform_eda(df_eu):
 
 
 # ============================================================================
+# AIRPORT ENCODING
+# ============================================================================
+
+
+def create_airport_encodings(df_eu, df_ww, df_airports):
+    """
+    Create consistent label encoding for all airport codes
+
+    Returns:
+        encoder: Fitted LabelEncoder
+        airport_mapping: Dict mapping IATA codes to integers
+    """
+    print_section_header("CREATING AIRPORT ENCODINGS")
+
+    # Get all unique airport codes from all sources
+    all_airports = set()
+
+    # From airports reference file
+    if "iata_code" in df_airports.columns:
+        all_airports.update(df_airports["iata_code"].dropna().unique())
+
+    # From EU passengers
+    for col in [
+        "shopped_at",
+        "departure_IATA_1",
+        "destination_IATA_1",
+        "departure_IATA_2",
+        "destination_IATA_2",
+    ]:
+        if col in df_eu.columns:
+            all_airports.update(df_eu[col].dropna().unique())
+
+    # From WW passengers
+    for col in [
+        "shopped_at",
+        "departure_IATA_1",
+        "destination_IATA_1",
+        "departure_IATA_2",
+        "destination_IATA_2",
+    ]:
+        if col in df_ww.columns:
+            all_airports.update(df_ww[col].dropna().unique())
+
+    # Create encoder
+    all_airports = sorted(list(all_airports))
+    encoder = LabelEncoder()
+    encoder.fit(all_airports)
+
+    # Create mapping for reference
+    airport_mapping = {code: idx for idx, code in enumerate(encoder.classes_)}
+
+    print(f"✓ Encoded {len(all_airports)} unique airports")
+    print(f"  Encoding range: 0 to {len(all_airports) - 1}")
+    print(f"\nSample mappings:")
+    for code in list(airport_mapping.keys())[:5]:
+        print(f"  {code}: {airport_mapping[code]}")
+
+    return encoder, airport_mapping
+
+
+def encode_airport_columns(df, encoder, columns_to_encode):
+    """
+    Apply airport encoding to specified columns
+
+    Args:
+        df: DataFrame
+        encoder: Fitted LabelEncoder
+        columns_to_encode: List of column names to encode
+
+    Returns:
+        df: DataFrame with new encoded columns
+    """
+    df = df.copy()
+
+    for col in columns_to_encode:
+        if col in df.columns:
+            # Create new encoded column
+            new_col = f"{col}_encoded"
+
+            # Handle missing values: assign -1 (unknown airport)
+            df[new_col] = df[col].apply(
+                lambda x: (
+                    encoder.transform([x])[0]
+                    if pd.notna(x) and x in encoder.classes_
+                    else -1
+                )
+            )
+
+            print(
+                f"  ✓ Encoded {col} → {new_col} (unique values: {df[new_col].nunique()})"
+            )
+
+    return df
+
+
+# ============================================================================
+# LAYOVER CATEGORY ENCODING
+# ============================================================================
+
+
+def encode_layover_category(df):
+    """
+    Ordinal encoding for layover categories (ordered)
+    no_layover < short < medium < long
+    """
+    df = df.copy()
+
+    if "layover_category" in df.columns:
+        # Ordinal mapping
+        layover_mapping = {"no_layover": 0, "short": 1, "medium": 2, "long": 3}
+
+        df["layover_category_encoded"] = df["layover_category"].map(layover_mapping)
+
+        print("✓ Encoded layover_category (ordinal):")
+        print("  no_layover=0, short=1, medium=2, long=3")
+        print(
+            f"  Encoded values: {sorted(df['layover_category_encoded'].dropna().unique())}"
+        )
+
+    return df
+
+
+# ============================================================================
+# LAYOVER RATIO TRANSFORMATION
+# ============================================================================
+
+
+def transform_layover_ratio(df):
+    """
+    Apply log transformation to layover_ratio to handle skewness
+    """
+    df = df.copy()
+
+    if "layover_ratio" in df.columns:
+        # Log(1 + x) transformation to handle zeros
+        df["layover_ratio_log"] = np.log1p(df["layover_ratio"])
+
+        print("✓ Applied log1p transform to layover_ratio")
+        print(
+            f"  Original range: [{df['layover_ratio'].min():.4f}, {df['layover_ratio'].max():.4f}]"
+        )
+        print(
+            f"  Transformed range: [{df['layover_ratio_log'].min():.4f}, {df['layover_ratio_log'].max():.4f}]"
+        )
+
+        # Also clip extreme outliers if needed
+        q99 = df["layover_ratio_log"].quantile(0.99)
+        df["layover_ratio_log"] = df["layover_ratio_log"].clip(upper=q99)
+
+    return df
+
+
+# ============================================================================
+# NUMERICAL SCALING
+# ============================================================================
+
+
+def scale_numerical_features(df_eu, df_ww, time_features):
+    """
+    Apply MinMax scaling to time-based features
+    Fit on EU data, transform both EU and WW
+
+    Args:
+        df_eu: EU DataFrame (training data)
+        df_ww: WW DataFrame (prediction data)
+        time_features: List of columns to scale
+
+    Returns:
+        df_eu_scaled, df_ww_scaled: DataFrames with scaled features
+        scaler: Fitted MinMaxScaler for reference
+    """
+    print_section_header("SCALING NUMERICAL FEATURES")
+
+    df_eu = df_eu.copy()
+    df_ww = df_ww.copy()
+
+    # Features to scale
+    features_to_scale = [f for f in time_features if f in df_eu.columns]
+
+    print(f"Scaling {len(features_to_scale)} features: {features_to_scale}")
+
+    # Fit scaler on EU data only
+    scaler = MinMaxScaler()
+    scaler.fit(df_eu[features_to_scale])
+
+    # Transform both datasets
+    df_eu_scaled_values = scaler.transform(df_eu[features_to_scale])
+    df_ww_scaled_values = scaler.transform(df_ww[features_to_scale])
+
+    # Create new scaled columns
+    for i, feature in enumerate(features_to_scale):
+        new_col = f"{feature}_scaled"
+        df_eu[new_col] = df_eu_scaled_values[:, i]
+        df_ww[new_col] = df_ww_scaled_values[:, i]
+
+        print(f"  ✓ Scaled {feature}")
+        print(
+            f"    EU:  [{df_eu[feature].min():.1f}, {df_eu[feature].max():.1f}] "
+            f"→ [{df_eu[new_col].min():.4f}, {df_eu[new_col].max():.4f}]"
+        )
+        print(
+            f"    WW:  [{df_ww[feature].min():.1f}, {df_ww[feature].max():.1f}] "
+            f"→ [{df_ww[new_col].min():.4f}, {df_ww[new_col].max():.4f}]"
+        )
+
+    return df_eu, df_ww, scaler
+
+
+# ============================================================================
+# INTEGRATED FEATURE ENGINEERING (ENHANCED)
+# ============================================================================
+
+
+def engineer_features_enhanced(df_eu, df_ww, df_airports):
+    """
+    Enhanced feature engineering with encoding and scaling
+
+    This replaces or extends your existing engineer_features() function
+    """
+    print_section_header("ENHANCED FEATURE ENGINEERING")
+
+    # 1. Original feature engineering (keep your existing code)
+    print("\n[Step 1] Basic feature engineering...")
+    print("  (age, luggage_weight, binary features, etc.)")
+    # ... your existing feature engineering code here ...
+
+    # 2. Airport encoding
+    print("\n[Step 2] Encoding airport codes...")
+    encoder, airport_mapping = create_airport_encodings(df_eu, df_ww, df_airports)
+
+    airport_cols = [
+        "shopped_at",
+        "departure_IATA_1",
+        "destination_IATA_1",
+        "departure_IATA_2",
+        "destination_IATA_2",
+    ]
+
+    df_eu = encode_airport_columns(df_eu, encoder, airport_cols)
+    df_ww = encode_airport_columns(df_ww, encoder, airport_cols)
+
+    # 3. Layover category encoding
+    print("\n[Step 3] Encoding layover category...")
+    df_eu = encode_layover_category(df_eu)
+    df_ww = encode_layover_category(df_ww)
+
+    # 4. Layover ratio transformation
+    print("\n[Step 4] Transforming layover ratio...")
+    df_eu = transform_layover_ratio(df_eu)
+    df_ww = transform_layover_ratio(df_ww)
+
+    # 5. Numerical scaling
+    print("\n[Step 5] Scaling time features...")
+    time_features = [
+        "total_flighttime",
+        "total_traveltime",
+        "layover_time",
+        "luggage_weight_kg",
+    ]
+    df_eu, df_ww, scaler = scale_numerical_features(df_eu, df_ww, time_features)
+
+    print("\n✓ Enhanced feature engineering complete")
+    print(f"  EU columns: {len(df_eu.columns)}")
+    print(f"  WW columns: {len(df_ww.columns)}")
+
+    # Return encoder and scaler for later use
+    return df_eu, df_ww, encoder, scaler
+
+
+# ============================================================================
 # MAIN PREPROCESSING PIPELINE
 # ============================================================================
 
 
 def main():
     """
-    Main preprocessing pipeline
+    Main preprocessing pipeline with enhanced feature engineering
     """
     print("=" * 80)
     print("DELOITTE CASE STUDY - DATA PREPROCESSING")
     print("=" * 80)
 
     # Step 1: Load data
-    print("\n[1/6] Loading data...")
+    print("\n[1/7] Loading data...")
     df_eu, df_ww, df_airports, df_lease = load_all_data()
 
     # Step 2: Data quality checks
-    print("\n[2/6] Performing data quality checks...")
+    print("\n[2/7] Performing data quality checks...")
     eu_quality = perform_data_quality_checks(df_eu, "EU Passengers")
     ww_quality = perform_data_quality_checks(df_ww, "WW Passengers")
 
     # Step 3: Outlier detection
-    print("\n[3/6] Detecting outliers...")
+    print("\n[3/7] Detecting outliers...")
     eu_outliers = detect_outliers(df_eu)
 
     # Step 4: Handle outliers
-    print("\n[4/6] Handling outliers...")
+    print("\n[4/7] Handling outliers...")
     df_eu_clean = handle_outliers(df_eu, method="cap")
     df_ww_clean = handle_outliers(df_ww, method="cap")
 
-    # Step 5: Feature engineering
-    print("\n[5/6] Engineering features...")
-    df_eu_engineered = engineer_features(df_eu_clean)
-    df_ww_engineered = engineer_features(df_ww_clean)
+    # Step 5: Basic feature engineering (your existing function)
+    print("\n[5/7] Basic feature engineering...")
+    df_eu_basic = engineer_features(df_eu_clean)
+    df_ww_basic = engineer_features(df_ww_clean)
 
-    # Step 6: EDA
-    print("\n[6/6] Performing exploratory data analysis...")
+    # Step 6: Enhanced feature engineering (NEW)
+    print("\n[6/7] Enhanced feature engineering...")
+    print("  (airport encoding, scaling, transformations)")
+
+    # 6a. Airport encoding
+    print("\n  Creating airport encodings...")
+    encoder, airport_mapping = create_airport_encodings(
+        df_eu_basic, df_ww_basic, df_airports
+    )
+
+    airport_cols = [
+        "shopped_at",
+        "departure_IATA_1",
+        "destination_IATA_1",
+        "departure_IATA_2",
+        "destination_IATA_2",
+    ]
+
+    df_eu_encoded = encode_airport_columns(df_eu_basic, encoder, airport_cols)
+    df_ww_encoded = encode_airport_columns(df_ww_basic, encoder, airport_cols)
+
+    # 6b. Layover category encoding
+    print("\n  Encoding layover category...")
+    df_eu_encoded = encode_layover_category(df_eu_encoded)
+    df_ww_encoded = encode_layover_category(df_ww_encoded)
+
+    # 6c. Layover ratio transformation
+    print("\n  Transforming layover ratio...")
+    df_eu_encoded = transform_layover_ratio(df_eu_encoded)
+    df_ww_encoded = transform_layover_ratio(df_ww_encoded)
+
+    # 6d. Numerical scaling
+    print("\n  Scaling numerical features...")
+    time_features = [
+        "total_flighttime",
+        "total_traveltime",
+        "layover_time",
+        "luggage_weight_kg",
+    ]
+    df_eu_engineered, df_ww_engineered, scaler = scale_numerical_features(
+        df_eu_encoded, df_ww_encoded, time_features
+    )
+
+    print(f"\n  ✓ Enhanced features added")
+    print(f"    EU columns: {len(df_eu_engineered.columns)}")
+    print(f"    WW columns: {len(df_ww_engineered.columns)}")
+
+    # Step 7: EDA
+    print("\n[7/7] Performing exploratory data analysis...")
     correlations, spending_dist = perform_eda(df_eu_engineered)
 
-    # Save processed data
+    # Save processed data and encoders
     if SAVE_INTERMEDIATE:
-        print_section_header("SAVING PROCESSED DATA")
+        print_section_header("SAVING PROCESSED DATA & ENCODERS")
+
+        # Save dataframes
         save_dataframe(df_eu_engineered, EU_CLEAN_FILE, "EU Passengers (Clean)")
         save_dataframe(df_ww_engineered, WW_CLEAN_FILE, "WW Passengers (Clean)")
+
+        # Save encoders and scalers for reproducibility
+        encoder_file = os.path.join(PROCESSED_DATA_DIR, "airport_encoder.pkl")
+        scaler_file = os.path.join(PROCESSED_DATA_DIR, "time_scaler.pkl")
+
+        with open(encoder_file, "wb") as f:
+            pickle.dump(encoder, f)
+        print(f"✓ Saved airport encoder to: {encoder_file}")
+
+        with open(scaler_file, "wb") as f:
+            pickle.dump(scaler, f)
+        print(f"✓ Saved time scaler to: {scaler_file}")
 
     # Summary
     print_section_header("PREPROCESSING COMPLETE")
@@ -390,6 +725,17 @@ def main():
     )
     print(f"✓ Data saved to: {PROCESSED_DATA_DIR}")
 
+    # Show new features created
+    basic_cols = set(df_eu_basic.columns)
+    enhanced_cols = set(df_eu_engineered.columns)
+    new_features = enhanced_cols - basic_cols
+
+    print(f"\n✓ New features created: {len(new_features)}")
+    if new_features:
+        print("  Enhanced features:")
+        for feat in sorted(new_features):
+            print(f"    - {feat}")
+
     return {
         "df_eu": df_eu_engineered,
         "df_ww": df_ww_engineered,
@@ -397,6 +743,8 @@ def main():
         "df_lease": df_lease,
         "correlations": correlations,
         "spending_dist": spending_dist,
+        "airport_encoder": encoder,
+        "time_scaler": scaler,
     }
 
 

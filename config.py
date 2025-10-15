@@ -57,15 +57,29 @@ REFERENCE_DATE = "2019-12-31"
 
 # Features to use in model
 FEATURE_COLUMNS = [
+    # core binaries & numerics
     "age",
     "is_male",
     "is_business",
     "has_family",
     "has_connection",
+    "travel_complexity",
+    "is_long_haul",
+    "layover_ratio_log",
+    # prefer scaled versions for times/weights (avoid mixing raw+scaled)
+    "total_flighttime_scaled",
+    "total_traveltime_scaled",
+    "layover_time_scaled",
+    "luggage_weight_kg_scaled",
+    # encoded categoricals
+    "shopped_at_encoded",
+    "departure_IATA_1_encoded",
+    "destination_IATA_1_encoded",
+    "departure_IATA_2_encoded",
+    "destination_IATA_2_encoded",
+    "layover_category_encoded",
+    # optionally keep raw luggage if you want both signals
     "luggage_weight_kg",
-    "total_flighttime",
-    "total_traveltime",
-    "layover_time",
 ]
 
 # Layover time bins (in minutes)

@@ -59,7 +59,7 @@ def run_complete_pipeline():
         print()
 
         stage2_start = time.time()
-        training_results = model_training.main()
+        training_results = model_training.main_xgboost()
         stage2_time = time.time() - stage2_start
 
         results["training"] = training_results
