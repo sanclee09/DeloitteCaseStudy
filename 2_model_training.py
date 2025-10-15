@@ -1,10 +1,3 @@
-"""
-Model Training with Feature Selection and Model Comparison
-Supports fast mode (optimal params) and full tuning mode
-"""
-
-import pandas as pd
-import numpy as np
 import pickle
 import warnings
 from sklearn.model_selection import (
@@ -420,6 +413,9 @@ def train_random_forest(df, feature_cols, enable_tuning=None):
 
 def evaluate_model(pipeline, X_train, X_test, y_train, y_test, model_name):
     """Evaluate model performance"""
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
     print_subsection_header(f"{model_name} Evaluation")
 
     y_pred_train = pipeline.predict(X_train)
@@ -431,8 +427,8 @@ def evaluate_model(pipeline, X_train, X_test, y_train, y_test, model_name):
     f1_weighted = f1_score(y_test, y_pred_test, average="weighted")
 
     print(f"\nOverall Performance:")
-    print(f"  Train Accuracy:  {train_acc:.4f} ({train_acc*100:.2f}%)")
-    print(f"  Test Accuracy:   {test_acc:.4f} ({test_acc*100:.2f}%)")
+    print(f"  Train Accuracy:  {train_acc:.4f} ({train_acc * 100:.2f}%)")
+    print(f"  Test Accuracy:   {test_acc:.4f} ({test_acc * 100:.2f}%)")
     print(f"  F1 Macro:        {f1_macro:.4f}")
     print(f"  F1 Weighted:     {f1_weighted:.4f}")
     print(f"  Overfitting:     {train_acc - test_acc:.4f}")
@@ -467,10 +463,59 @@ def evaluate_model(pipeline, X_train, X_test, y_train, y_test, model_name):
             f"{metrics_cls['f1-score']:.4f}    {support:,}"
         )
 
-    # Confusion matrix
+    # Confusion matrices (both raw and normalized)
     cm = confusion_matrix(y_test, y_pred_test)
-    print("\nConfusion Matrix:")
+    cm_normalized = cm.astype("float") / cm.sum(axis=1)[:, np.newaxis]
+
+    print("\nConfusion Matrix (Raw Counts):")
     print(cm)
+
+    # Create confusion matrix plots with viridis theme
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+
+    # Raw confusion matrix
+    sns.heatmap(
+        cm,
+        annot=True,
+        fmt="d",
+        cmap="viridis",
+        ax=ax1,
+        xticklabels=range(5),
+        yticklabels=range(5),
+    )
+    ax1.set_title(
+        f"{model_name} - Raw Confusion Matrix", fontweight="bold", fontsize=12
+    )
+    ax1.set_ylabel("True Label", fontsize=11)
+    ax1.set_xlabel("Predicted Label", fontsize=11)
+    ax1.tick_params(axis="x", rotation=45)
+
+    # Normalized confusion matrix
+    sns.heatmap(
+        cm_normalized,
+        annot=True,
+        fmt=".2f",
+        cmap="viridis",
+        ax=ax2,
+        xticklabels=range(5),
+        yticklabels=range(5),
+    )
+    ax2.set_title(
+        f"{model_name} - Normalized Confusion Matrix", fontweight="bold", fontsize=12
+    )
+    ax2.set_ylabel("True Label", fontsize=11)
+    ax2.set_xlabel("Predicted Label", fontsize=11)
+    ax2.tick_params(axis="x", rotation=45)
+
+    plt.tight_layout()
+
+    # Save the plot
+    cm_filename = os.path.join(
+        OUTPUT_DIR, f'confusion_matrix_{model_name.lower().replace(" ", "_")}.png'
+    )
+    plt.savefig(cm_filename, dpi=FIGURE_DPI, bbox_inches="tight")
+    print(f"\n✓ Confusion matrix plot saved to: {cm_filename}")
+    plt.close()
 
     metrics = {
         "train_accuracy": train_acc,
@@ -480,6 +525,7 @@ def evaluate_model(pipeline, X_train, X_test, y_train, y_test, model_name):
         "cv_f1_mean": cv_scores.mean(),
         "cv_f1_std": cv_scores.std(),
         "confusion_matrix": cm,
+        "confusion_matrix_normalized": cm_normalized,
         "classification_report": report,
     }
 
