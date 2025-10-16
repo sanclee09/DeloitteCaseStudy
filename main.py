@@ -122,9 +122,12 @@ def run_complete_pipeline():
         print(f"\n🤖 MODEL PERFORMANCE:")
         print(f"  Test Accuracy:      {metrics['test_accuracy']:.2%}")
         print(f"  F1 Score:           {metrics['f1_weighted']:.4f}")
-        print(
-            f"  CV Score:           {metrics['cv_f1_mean']:.4f} (±{metrics['cv_f1_std']:.4f})"
-        )
+
+        # Only print CV scores if they exist
+        if "cv_f1_mean" in metrics and metrics["cv_f1_mean"] is not None:
+            print(
+                f"  CV Score:           {metrics['cv_f1_mean']:.4f} (±{metrics['cv_f1_std']:.4f})"
+            )
 
     print(f"\n✓ Analysis pipeline completed successfully!")
     print(f"  Finished at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")

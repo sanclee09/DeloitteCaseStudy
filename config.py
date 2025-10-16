@@ -31,14 +31,38 @@ VISUALIZATION_FILE = os.path.join(OUTPUT_DIR, "case_study_analysis.png")
 FEATURE_IMPORTANCE_FILE = os.path.join(OUTPUT_DIR, "feature_importance.png")
 
 # ============================================================================
-# BUSINESS CONSTANTS
+# BUSINESS CONSTANTS - REALISTIC ASSUMPTIONS
 # ============================================================================
 
 # Spending category midpoints for revenue calculation (EUR)
-CATEGORY_MIDPOINTS = {0: 5, 1: 30, 2: 100, 3: 225, 4: 400}
+# Category 4: Use TRUE midpoint of 300-500 EUR = 375 EUR (not 400)
+CATEGORY_MIDPOINTS = {0: 5, 1: 30, 2: 100, 3: 225, 4: 375}
 
 # Reference date for age calculation
 REFERENCE_DATE = "2019-12-31"
+
+# ============================================================================
+# REALISTIC P&L ASSUMPTIONS
+# ============================================================================
+
+# Gross Margin (Revenue - COGS) / Revenue
+# Typical retail fashion: 55-65%
+# We use 60% as baseline
+GROSS_MARGIN = 0.60  # 60% gross margin → COGS = 40% of revenue
+
+# Operating Expenses
+# Staff costs per sqm per month (EUR)
+# Assumes: ~1 FTE per 40-50 sqm, at ~€3,500/month salary + benefits
+# So: €3,500 / 40 sqm ≈ €87.50/sqm, rounded to €90
+STAFF_COST_PER_SQM = 90  # EUR/sqm/month
+
+# Overhead (utilities, shrinkage, operations, marketing)
+# As % of revenue
+OVERHEAD_PCT = 0.05  # 5% of revenue
+
+# Note: Rent/lease costs are loaded from the lease file
+# Note: We're ignoring CAPEX (store fit-out) for simplicity,
+#       but in reality would amortize ~€500-1000/sqm over 3-5 years
 
 # ============================================================================
 # FEATURE ENGINEERING
@@ -55,26 +79,6 @@ OUTLIER_THRESHOLDS = {
     "luggage_weight_kg": {"max": 64},  # 2 bags × 32kg
 }
 
-# Core features to engineer
-CORE_FEATURES = [
-    "age",
-    "is_male",
-    "is_business",
-    "has_family",
-    "has_connection",
-    "luggage_weight_kg",
-    "total_flighttime",
-    "total_traveltime",
-    "layover_time",
-]
-
-# Advanced engineered features
-ADVANCED_FEATURES = [
-    "is_long_haul",
-    "layover_ratio",
-    "layover_category",
-]
-
 # ============================================================================
 # MODEL PARAMETERS
 # ============================================================================
@@ -88,14 +92,14 @@ CV_FOLDS = 5
 CV_SCORING = "f1_macro"
 
 # ============================================================================
-# OPTIMAL HYPERPARAMETERS (From Tuning on 2025-10-15)
+# OPTIMAL HYPERPARAMETERS
 # ============================================================================
 
 # Set to False to use optimal params directly (faster, no tuning)
 # Set to True to re-run hyperparameter search (slower, ~30 min)
 ENABLE_HYPERPARAMETER_TUNING = False
 
-# XGBoost optimal parameters (from best RandomizedSearchCV result)
+# XGBoost optimal parameters
 OPTIMAL_XGBOOST_PARAMS = {
     # Tuned parameters
     "n_estimators": 426,
@@ -123,37 +127,11 @@ XGBOOST_BASE_PARAMS = {
     "verbosity": 0,
 }
 
-# XGBoost hyperparameter search space (for tuning)
-XGBOOST_PARAM_GRID = {
-    "xgb__n_estimators": [200, 300, 400, 500],
-    "xgb__max_depth": [4, 6, 8, 10],
-    "xgb__learning_rate": [0.01, 0.05, 0.1, 0.2],
-    "xgb__subsample": [0.7, 0.8, 0.9, 1.0],
-    "xgb__colsample_bytree": [0.7, 0.8, 0.9, 1.0],
-    "xgb__gamma": [0, 0.1, 0.3, 0.5],
-    "xgb__reg_alpha": [0, 0.1, 0.5, 1.0],
-    "xgb__reg_lambda": [0.5, 1.0, 1.5, 2.0],
-}
-
-# Random Forest optimal parameters (from best RandomizedSearchCV result)
-OPTIMAL_RF_PARAMS = {
-    # Tuned parameters
-    "n_estimators": 300,
-    "max_depth": 20,
-    "min_samples_split": 50,
-    "min_samples_leaf": 20,
-    "max_features": "sqrt",
-    "class_weight": "balanced_subsample",
-    # Base parameters
-    "random_state": RANDOM_STATE,
-    "n_jobs": -1,
-}
-
 # Feature selection parameters
 FEATURE_SELECTION_PARAMS = {
     "correlation_threshold": 0.95,  # For multicollinearity check
     "variance_threshold": 0.01,  # Minimum variance for feature
-    "importance_threshold": 0.0005,  # Minimum feature importance
+    "importance_threshold": 0.0005,  # Minimum feature importance (not used in new version)
 }
 
 # ============================================================================
@@ -190,4 +168,57 @@ CREATE_VISUALIZATIONS = True
 RUN_SENSITIVITY = True
 VERBOSITY = 1
 
+# ============================================================================
+# DOCUMENTATION OF ASSUMPTIONS
+# ============================================================================
+
+ASSUMPTIONS = """
+KEY BUSINESS ASSUMPTIONS:
+
+1. REVENUE:
+   - Category midpoints represent average spending within each bracket
+   - Category 4: €375 (true midpoint of €300-500 range)
+   - December 2019 patterns are representative of annual behavior
+
+2. COSTS:
+   - Gross Margin: 60% (industry standard for fashion retail)
+   - COGS: 40% of revenue (cost to acquire goods)
+   - Staff: €90/sqm/month (~1 FTE per 40-50 sqm)
+   - Overhead: 5% of revenue (utilities, shrinkage, ops)
+   - Rent: Per lease terms (provided in data)
+   - CAPEX: Not included (would add ~€50-100/sqm/month if amortized)
+
+3. GENERALIZABILITY:
+   - EU passenger behavior patterns apply to worldwide markets
+   - Cultural differences in spending not explicitly modeled
+   - Economic conditions assumed similar across regions
+
+4. DATA QUALITY:
+   - Single month of data (December 2019) limits seasonality analysis
+   - Survey responses assumed representative of actual spending
+   - Passenger volumes assumed stable over time
+
+5. COMPETITIVE LANDSCAPE:
+   - No competition factored into revenue projections
+   - Brand recognition assumed consistent across regions
+   - Market saturation not considered
+
+CONFIDENCE LEVELS:
+- High: Relative ranking of airports (top 3 vs bottom 3)
+- Moderate: Absolute profit figures (±15-20% variance expected)
+- Low: Year-over-year growth rates (insufficient temporal data)
+
+RECOMMENDATIONS:
+- Run 6-month pilot at top-ranked airport
+- Validate cost assumptions with actual operations data
+- Adjust gross margin assumptions based on local sourcing costs
+- Monitor seasonality vs December baseline
+- Conduct competitive analysis at target airports
+"""
+
 print("✓ Configuration loaded successfully!")
+print("\n📊 Business Assumptions:")
+print(f"  Gross Margin:    {GROSS_MARGIN:.0%}")
+print(f"  Staff Cost:      €{STAFF_COST_PER_SQM}/sqm/month")
+print(f"  Overhead:        {OVERHEAD_PCT:.0%} of revenue")
+print(f"  Category 4:      €{CATEGORY_MIDPOINTS[4]} (true midpoint)")
