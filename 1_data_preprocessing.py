@@ -19,6 +19,15 @@ def load_all_data():
 
     df_eu = load_csv_with_info(EU_PASSENGERS_FILE, "EU Passengers")
     df_ww = load_csv_with_info(WW_PASSENGERS_FILE, "WW Passengers")
+    initial_ww_rows = len(df_ww)
+    df_ww = df_ww.drop_duplicates().reset_index(drop=True)
+    removed = initial_ww_rows - len(df_ww)
+    if removed > 0:
+        print(
+            f"  Removed {removed} duplicate rows from WW data ({removed / initial_ww_rows * 100:.1f}%)"
+        )
+        print(f"  WW dataset: {initial_ww_rows:,} → {len(df_ww):,} rows")
+
     df_airports = load_csv_with_info(AIRPORTS_FILE, "Airports")
     df_lease = load_csv_with_info(LEASE_FILE, "Lease Terms")
 
@@ -117,12 +126,12 @@ def engineer_advanced_features(df):
     df = df.copy()
 
     # 1. Travel complexity score
-    df["travel_complexity"] = (
-        df["has_connection"] * 2
-        + (df["layover_time"] > 0).astype(int)
-        + (df["luggage_weight_kg"] > 20).astype(int)
-    )
-    print("  ✓ Created: travel_complexity")
+    # df["travel_complexity"] = (
+    #     df["has_connection"] * 2
+    #     + (df["layover_time"] > 0).astype(int)
+    #     + (df["luggage_weight_kg"] > 20).astype(int)
+    # )
+    # print("  ✓ Created: travel_complexity")
 
     # 2. Long-haul flight indicator
     df["is_long_haul"] = (df["total_flighttime"] > 360).astype(int)

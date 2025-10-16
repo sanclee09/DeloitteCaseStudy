@@ -70,9 +70,9 @@ CORE_FEATURES = [
 
 # Advanced engineered features
 ADVANCED_FEATURES = [
-    "travel_complexity",
     "is_long_haul",
     "layover_ratio",
+    "layover_category",
 ]
 
 # ============================================================================
@@ -151,9 +151,9 @@ OPTIMAL_RF_PARAMS = {
 
 # Feature selection parameters
 FEATURE_SELECTION_PARAMS = {
-    "correlation_threshold": 0.8,  # For multicollinearity check
+    "correlation_threshold": 0.95,  # For multicollinearity check
     "variance_threshold": 0.01,  # Minimum variance for feature
-    "importance_threshold": 0.001,  # Minimum feature importance
+    "importance_threshold": 0.0005,  # Minimum feature importance
 }
 
 # ============================================================================
