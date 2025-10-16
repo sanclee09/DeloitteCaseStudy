@@ -39,7 +39,7 @@ class FeatureSelector:
     Feature selector that prevents data leakage by fitting only on training data
     """
 
-    def __init__(self, variance_threshold=0.01, correlation_threshold=0.95):
+    def __init__(self, variance_threshold=0.005, correlation_threshold=0.98):
         self.variance_threshold = variance_threshold
         self.correlation_threshold = correlation_threshold
         self.variance_selector = None
@@ -383,41 +383,56 @@ def evaluate_model(
 # ============================================================================
 
 
+# In main() function, save candidate_features to model_data
+
+
 def main():
     """Main training pipeline with NO data leakage"""
     print("=" * 80)
-    print("DELOITTE CASE STUDY - MODEL TRAINING (FIXED - NO LEAKAGE)")
+    print("DELOITTE CASE STUDY - MODEL TRAINING (ENHANCED)")
     print("=" * 80)
 
     # 1. Load data
     print("\n[1/4] Loading preprocessed data...")
     df_eu = load_csv_with_info(EU_CLEAN_FILE, "EU Passengers (Clean)")
 
-    # 2. Define candidate features
+    # 2. Define candidate features - ENHANCED
     print("\n[2/4] Defining candidate features...")
     all_features = [
+        # Scaled numerical features
         "age_scaled",
         "luggage_weight_kg_scaled",
         "total_flighttime_scaled",
         "total_traveltime_scaled",
         "layover_time_scaled",
         "layover_ratio_log_scaled",
+        # Binary features
         "is_male",
         "is_business",
         "has_family",
-        "has_connection",
         "is_long_haul",
+        # Categorical features
         "layover_category",
+        "flight_time_category",
+        "age_group",
+        # Encoded airport features
         "shopped_at_encoded",
         "departure_IATA_1_encoded",
         "destination_IATA_1_encoded",
         "departure_IATA_2_encoded",
         "destination_IATA_2_encoded",
+        # NEW: Interaction features
+        "business_longhaul",
+        "age_business",
+        "family_luggage",
+        "layover_shopping_time",
+        "male_business",
     ]
+
     candidate_features = [f for f in all_features if f in df_eu.columns]
     print(f"\nCandidate features: {len(candidate_features)}")
 
-    # 3. Train model (feature selection happens inside, on training data only)
+    # 3. Train model
     print("\n[3/4] Training XGBoost with proper data handling...")
     xgb_pipeline, xgb_metrics, selected_features, selector = train_xgboost_no_leakage(
         df_eu, candidate_features
@@ -432,7 +447,7 @@ def main():
         "feature_selector": selector,
         "model_type": "XGBoost with SMOTE (No Leakage)",
         "feature_cols": selected_features,
-        "candidate_features": candidate_features,
+        "candidate_features": candidate_features,  # SAVE THIS!
         "metrics": xgb_metrics,
         "trained_date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
@@ -453,12 +468,11 @@ def main():
     print(
         f"✓ Overfitting:         {xgb_metrics['train_accuracy'] - xgb_metrics['test_accuracy']:.4f}"
     )
-    print(f"\n⚠️  NOTE: Feature selection now done on training data only")
-    print(f"   This may result in slightly lower accuracy, but is more realistic!")
 
     return {
         "pipeline": xgb_pipeline,
         "selected_features": selected_features,
+        "candidate_features": candidate_features,  # Return this too
         "metrics": xgb_metrics,
         "selector": selector,
     }

@@ -25,7 +25,7 @@ def load_model_and_data():
         print(f"  Test accuracy: {model_data['metrics']['test_accuracy']:.4f}")
     except Exception as e:
         print(f"✗ Error loading model: {str(e)}")
-        return None, None, None, None
+        return None, None, None, None, None
 
     df_ww = load_csv_with_info(WW_CLEAN_FILE, "WW Passengers (Clean)")
 
@@ -33,6 +33,7 @@ def load_model_and_data():
         model_data["model"],
         model_data["feature_cols"],
         model_data.get("feature_selector"),
+        model_data.get("candidate_features", model_data["feature_cols"]),  # NEW!
         df_ww,
     )
 
@@ -42,35 +43,34 @@ def load_model_and_data():
 # ============================================================================
 
 
-def predict_worldwide_spending(df_ww, model, feature_cols, selector=None):
+def predict_worldwide_spending(
+    df_ww, model, feature_cols, selector=None, candidate_features=None
+):
     """Predict spending categories for worldwide passengers"""
     print_section_header("PREDICTING WORLDWIDE SPENDING")
 
     print("Preparing features for prediction...")
 
+    # Use provided candidate_features or fall back to feature_cols
+    if candidate_features is None:
+        candidate_features = feature_cols
+
+    # Verify all features exist in df_ww
+    missing_features = [f for f in candidate_features if f not in df_ww.columns]
+    if missing_features:
+        print(f"\n⚠️  Warning: Missing {len(missing_features)} features in WW dataset:")
+        for f in missing_features[:10]:
+            print(f"    - {f}")
+        if len(missing_features) > 10:
+            print(f"    ... and {len(missing_features) - 10} more")
+        print("\n✗ Cannot proceed without all required features.")
+        print("   Please re-run preprocessing to generate these features.")
+        return None
+
     # If we have a feature selector, apply it
     if selector:
-        all_candidate_features = [
-            "age_scaled",
-            "luggage_weight_kg_scaled",
-            "total_flighttime_scaled",
-            "total_traveltime_scaled",
-            "layover_time_scaled",
-            "layover_ratio_log_scaled",
-            "is_male",
-            "is_business",
-            "has_family",
-            "has_connection",
-            "is_long_haul",
-            "layover_category",
-            "shopped_at_encoded",
-            "departure_IATA_1_encoded",
-            "destination_IATA_1_encoded",
-            "departure_IATA_2_encoded",
-            "destination_IATA_2_encoded",
-        ]
-        X_ww = df_ww[all_candidate_features].fillna(0).values
-        X_ww_selected, _ = selector.transform(X_ww, all_candidate_features)
+        X_ww = df_ww[candidate_features].fillna(0).values
+        X_ww_selected, _ = selector.transform(X_ww, candidate_features)
     else:
         X_ww_selected = df_ww[feature_cols].fillna(0).values
 
@@ -672,7 +672,7 @@ def main():
 
     # Step 1: Load model and data
     print("\n[1/7] Loading model and data...")
-    model, feature_cols, selector, df_ww = load_model_and_data()
+    model, feature_cols, selector, candidate_features, df_ww = load_model_and_data()
 
     if model is None:
         print("✗ Cannot proceed without trained model")
@@ -680,7 +680,13 @@ def main():
 
     # Step 2: Predict worldwide spending
     print("\n[2/7] Predicting worldwide spending...")
-    df_ww_predictions = predict_worldwide_spending(df_ww, model, feature_cols, selector)
+    df_ww_predictions = predict_worldwide_spending(
+        df_ww, model, feature_cols, selector, candidate_features
+    )
+
+    if df_ww_predictions is None:
+        print("✗ Prediction failed - missing features in WW dataset")
+        return None
 
     # Step 3: Calculate revenue
     print("\n[3/7] Calculating revenue by airport...")

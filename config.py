@@ -101,21 +101,27 @@ ENABLE_HYPERPARAMETER_TUNING = False
 
 # XGBoost optimal parameters
 OPTIMAL_XGBOOST_PARAMS = {
-    # Tuned parameters
-    "n_estimators": 426,
-    "max_depth": 8,
-    "learning_rate": 0.2040,
-    "subsample": 0.9895,
-    "colsample_bytree": 0.9743,
-    "gamma": 0.3927,
-    "reg_alpha": 0.3723,
-    "reg_lambda": 1.8803,
-    # Base parameters
+    # Tree structure
+    "n_estimators": 500,  # Increased from 426
+    "max_depth": 7,  # Slightly reduced for less overfitting
+    "learning_rate": 0.1,  # Reduced from 0.204 for better generalization
+    # Sampling
+    "subsample": 0.9,  # Slightly reduced
+    "colsample_bytree": 0.9,  # Slightly reduced
+    "colsample_bylevel": 0.9,  # NEW: Additional regularization
+    # Regularization
+    "gamma": 0.5,  # Increased from 0.3927
+    "reg_alpha": 0.5,  # Increased from 0.3723
+    "reg_lambda": 2.0,  # Increased from 1.8803
+    "min_child_weight": 3,  # NEW: Prevent overfitting
+    # Performance
     "objective": "multi:softprob",
     "eval_metric": "mlogloss",
     "random_state": RANDOM_STATE,
     "n_jobs": -1,
     "verbosity": 0,
+    "tree_method": "hist",  # NEW: Faster training
+    "max_bin": 256,  # NEW: More granular splits
 }
 
 # XGBoost base parameters (for when tuning is enabled)
@@ -129,9 +135,9 @@ XGBOOST_BASE_PARAMS = {
 
 # Feature selection parameters
 FEATURE_SELECTION_PARAMS = {
-    "correlation_threshold": 0.95,  # For multicollinearity check
-    "variance_threshold": 0.01,  # Minimum variance for feature
-    "importance_threshold": 0.0005,  # Minimum feature importance (not used in new version)
+    "correlation_threshold": 0.98,  # For multicollinearity check
+    "variance_threshold": 0.005,  # Minimum variance for feature
+    "importance_threshold": 0.0001,  # Minimum feature importance (not used in new version)
 }
 
 # ============================================================================

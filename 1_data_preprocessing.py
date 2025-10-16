@@ -125,28 +125,74 @@ def engineer_advanced_features(df):
 
     df = df.copy()
 
-    # 1. Travel complexity score
-    # df["travel_complexity"] = (
-    #     df["has_connection"] * 2
-    #     + (df["layover_time"] > 0).astype(int)
-    #     + (df["luggage_weight_kg"] > 20).astype(int)
-    # )
-    # print("  ✓ Created: travel_complexity")
-
-    # 2. Long-haul flight indicator
+    # 1. Long-haul flight indicator
     df["is_long_haul"] = (df["total_flighttime"] > 360).astype(int)
     print("  ✓ Created: is_long_haul")
 
-    # 3. Layover ratio (safer calculation with epsilon)
+    # 2. Layover ratio (safer calculation with epsilon)
     df["layover_ratio"] = df["layover_time"] / (df["total_traveltime"] + 1)
     df["layover_ratio_log"] = np.log1p(df["layover_ratio"])
     print("  ✓ Created: layover_ratio, layover_ratio_log")
 
-    # 4. Layover category (ordinal)
+    # 3. Layover category (ordinal) - FIXED: handle NaN
     df["layover_category"] = pd.cut(
-        df["layover_time"], bins=LAYOVER_BINS, labels=range(len(LAYOVER_LABELS))
-    ).astype(int)
+        df["layover_time"],
+        bins=LAYOVER_BINS,
+        labels=range(len(LAYOVER_LABELS)),
+        include_lowest=True,
+    )
+    # Fill any NaN values before converting to int
+    df["layover_category"] = df["layover_category"].fillna(0).astype(int)
     print("  ✓ Created: layover_category (ordinal)")
+
+    # 4. NEW: Critical interaction features
+    # Business travelers with long flights spend more
+    df["business_longhaul"] = df["is_business"] * df["is_long_haul"]
+
+    # Age-business interaction (older business travelers spend more)
+    df["age_business"] = df["age"] * df["is_business"]
+
+    # Family travel with luggage (families with heavy luggage shop more)
+    df["family_luggage"] = df["has_family"] * df["luggage_weight_kg"]
+
+    # Layover shopping opportunity (long layovers = more shopping time)
+    df["layover_shopping_time"] = df["layover_time"] * (df["layover_time"] > 60).astype(
+        int
+    )
+
+    # Gender-business interaction
+    df["male_business"] = df["is_male"] * df["is_business"]
+
+    print("  ✓ Created: business_longhaul, age_business, family_luggage")
+    print("  ✓ Created: layover_shopping_time, male_business")
+
+    # 5. Flight time bins (categorical spending patterns) - FIXED: handle NaN
+    df["flight_time_category"] = pd.cut(
+        df["total_flighttime"],
+        bins=[0, 180, 360, 600, 2000],
+        labels=[0, 1, 2, 3],
+        include_lowest=True,
+    )
+    # Fill any NaN values before converting to int
+    df["flight_time_category"] = df["flight_time_category"].fillna(1).astype(int)
+    print("  ✓ Created: flight_time_category")
+
+    # 6. Age groups (spending patterns vary by age) - FIXED: handle NaN
+    df["age_group"] = pd.cut(
+        df["age"],
+        bins=[0, 25, 35, 50, 65, 100],
+        labels=[0, 1, 2, 3, 4],
+        include_lowest=True,
+    )
+    # Fill any NaN values before converting to int (use median age group = 2)
+    df["age_group"] = df["age_group"].fillna(2).astype(int)
+    print("  ✓ Created: age_group")
+
+    # 7. Polynomial features for key numerical variables
+    df["age_squared"] = df["age"] ** 2
+    df["luggage_squared"] = df["luggage_weight_kg"] ** 2
+    df["flighttime_log"] = np.log1p(df["total_flighttime"])
+    print("  ✓ Created: age_squared, luggage_squared, flighttime_log")
 
     return df
 
