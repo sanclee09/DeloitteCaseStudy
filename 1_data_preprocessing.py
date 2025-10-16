@@ -304,28 +304,25 @@ def complete_feature_engineering(df_eu, df_ww, df_airports):
     print_section_header("FEATURE ENGINEERING PIPELINE")
 
     # 1. Basic features
-    print("\n[1/4] Basic Features")
+    print("\n[1/3] Basic Features")
     df_eu = engineer_basic_features(df_eu)
     df_ww = engineer_basic_features(df_ww)
 
     # 2. Advanced features
-    print("\n[2/4] Advanced Features")
+    print("\n[2/3] Advanced Features")
     df_eu = engineer_advanced_features(df_eu)
     df_ww = engineer_advanced_features(df_ww)
 
     # 3. Encode categoricals
-    print("\n[3/4] Categorical Encoding")
+    print("\n[3/3] Categorical Encoding")
     df_eu, df_ww, encoder = encode_categorical_features(df_eu, df_ww, df_airports)
 
-    # 4. Scale numericals
-    print("\n[4/4] Numerical Scaling")
-    df_eu, df_ww, scaler = scale_numerical_features(df_eu, df_ww)
-
-    print(f"\n✓ Feature engineering complete")
+    # REMOVED: scaling (will be done in pipeline)
+    print(f"\n✓ Feature engineering complete (scaling will be done in model pipeline)")
     print(f"  EU: {len(df_eu.columns)} columns")
     print(f"  WW: {len(df_ww.columns)} columns")
 
-    return df_eu, df_ww, encoder, scaler
+    return df_eu, df_ww, encoder
 
 
 # ============================================================================
@@ -392,7 +389,7 @@ def perform_eda(df_eu):
 def main():
     """Main preprocessing pipeline"""
     print("=" * 80)
-    print("DELOITTE CASE STUDY - DATA PREPROCESSING (CLEANED)")
+    print("DELOITTE CASE STUDY - DATA PREPROCESSING (NO LEAKAGE)")
     print("=" * 80)
 
     # 1. Load data
@@ -409,11 +406,9 @@ def main():
     df_eu = handle_outliers(df_eu)
     df_ww = handle_outliers(df_ww)
 
-    # 4. Feature engineering
+    # 4. Feature engineering (WITHOUT scaling)
     print("\n[4/5] Feature engineering...")
-    df_eu, df_ww, encoder, scaler = complete_feature_engineering(
-        df_eu, df_ww, df_airports
-    )
+    df_eu, df_ww, encoder = complete_feature_engineering(df_eu, df_ww, df_airports)
 
     # 5. EDA
     print("\n[5/5] Exploratory data analysis...")
@@ -426,11 +421,9 @@ def main():
         save_dataframe(df_eu, EU_CLEAN_FILE, "EU Passengers (Clean)")
         save_dataframe(df_ww, WW_CLEAN_FILE, "WW Passengers (Clean)")
 
-        # Save encoders
+        # Save encoder only (no scaler)
         with open(os.path.join(PROCESSED_DATA_DIR, "airport_encoder.pkl"), "wb") as f:
             pickle.dump(encoder, f)
-        with open(os.path.join(PROCESSED_DATA_DIR, "feature_scaler.pkl"), "wb") as f:
-            pickle.dump(scaler, f)
 
         print("✓ All preprocessing artifacts saved")
 
@@ -438,7 +431,7 @@ def main():
     print_section_header("PREPROCESSING COMPLETE")
     print(f"✓ EU dataset: {len(df_eu):,} rows, {len(df_eu.columns)} columns")
     print(f"✓ WW dataset: {len(df_ww):,} rows, {len(df_ww.columns)} columns")
-    print(f"✓ Ready for model training")
+    print(f"✓ Ready for model training (scaling will happen in pipeline)")
 
     return {
         "df_eu": df_eu,
@@ -446,7 +439,6 @@ def main():
         "df_airports": df_airports,
         "df_lease": df_lease,
         "encoder": encoder,
-        "scaler": scaler,
         "correlations": correlations,
     }
 

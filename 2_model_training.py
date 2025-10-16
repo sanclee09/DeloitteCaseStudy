@@ -1,5 +1,7 @@
 import pickle
 import warnings
+
+from sklearn.compose import ColumnTransformer
 from sklearn.model_selection import (
     train_test_split,
     RandomizedSearchCV,
@@ -142,17 +144,17 @@ class FeatureSelector:
 
 
 def train_xgboost_no_leakage(df, feature_cols, enable_tuning=None):
-    """Train XGBoost with proper data handling - no leakage"""
+    """Train XGBoost with proper pipeline - NO leakage, NO fillna"""
     print_section_header("XGBOOST TRAINING (NO LEAKAGE)")
 
     if enable_tuning is None:
         enable_tuning = ENABLE_HYPERPARAMETER_TUNING
 
-    # Prepare data
-    X = df[feature_cols].fillna(0).values
+    # Prepare data - NO FILLNA FOR XGBOOST!
+    X = df[feature_cols].values  # Keep NaNs
     y = df["amount_spent_cat"].values
 
-    # CRITICAL: Split FIRST, before any feature selection
+    # CRITICAL: Split FIRST
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE, stratify=y
     )
@@ -161,6 +163,13 @@ def train_xgboost_no_leakage(df, feature_cols, enable_tuning=None):
     print(f"  Train: {len(X_train):,} samples")
     print(f"  Test:  {len(X_test):,} samples")
     print(f"  Features: {len(feature_cols)}")
+
+    # Check class distribution
+    unique, counts = np.unique(y_train, return_counts=True)
+    class_dist = dict(zip(unique, counts))
+    print(f"\n✓ Training set class distribution:")
+    for cls, count in class_dist.items():
+        print(f"  Class {cls}: {count:,} samples")
 
     # Feature selection on TRAINING data only
     print_subsection_header("Feature Selection on Training Data")
@@ -178,19 +187,94 @@ def train_xgboost_no_leakage(df, feature_cols, enable_tuning=None):
     for i, feat in enumerate(selected_features, 1):
         print(f"  {i:2d}. {feat}")
 
-    # Build pipeline with SMOTE
+    # Identify numerical vs categorical features for scaling
+    numerical_features = [
+        f
+        for f in selected_features
+        if any(
+            substring in f
+            for substring in [
+                "_scaled",
+                "age",
+                "luggage",
+                "flighttime",
+                "traveltime",
+                "layover",
+            ]
+        )
+        and "_encoded" not in f
+        and "business_longhaul" not in f
+        and "age_business" not in f
+        and "family_luggage" not in f
+        and "layover_shopping_time" not in f
+        and "male_business" not in f
+    ]
+
+    categorical_features = [f for f in selected_features if f not in numerical_features]
+
+    print(f"\n✓ Feature types:")
+    print(f"  Numerical (will scale): {len(numerical_features)}")
+    print(f"  Categorical/Binary (no scaling): {len(categorical_features)}")
+
+    # Build proper preprocessing pipeline
+    # Get indices for column transformer
+    numerical_indices = [selected_features.index(f) for f in numerical_features]
+    categorical_indices = [selected_features.index(f) for f in categorical_features]
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("num", StandardScaler(), numerical_indices),
+            ("cat", "passthrough", categorical_indices),
+        ],
+        remainder="drop",
+    )
+
+    # Calculate intelligent SMOTE strategy
+    max_samples = max(class_dist.values())
+    target_samples = int(max_samples * 0.8)
+
+    sampling_strategy = {}
+    for cls, count in class_dist.items():
+        if count < target_samples:
+            sampling_strategy[cls] = target_samples
+
+    print(f"\n✓ SMOTE sampling strategy:")
+    print(f"  Max class size: {max_samples:,}")
+    print(f"  Target size: {target_samples:,}")
+    for cls, target in sampling_strategy.items():
+        original = class_dist[cls]
+        print(f"  Class {cls}: {original:,} → {target:,} (+{target - original:,})")
+
+    # Build complete pipeline: Preprocessing → SMOTE → XGBoost
+    # XGBoost handles NaN natively, so we DON'T fillna!
     if enable_tuning:
         pipeline = ImbPipeline(
             [
-                ("smote", SMOTE(random_state=RANDOM_STATE, sampling_strategy="auto")),
+                ("preprocessor", preprocessor),
+                (
+                    "smote",
+                    SMOTE(
+                        random_state=RANDOM_STATE,
+                        sampling_strategy=sampling_strategy,
+                        k_neighbors=5,
+                    ),
+                ),
                 ("xgb", XGBClassifier(**XGBOOST_BASE_PARAMS)),
             ]
         )
     else:
-        print("\n✓ Using optimal hyperparameters from previous tuning")
+        print("\n✓ Using optimal hyperparameters")
         pipeline = ImbPipeline(
             [
-                ("smote", SMOTE(random_state=RANDOM_STATE, sampling_strategy="auto")),
+                ("preprocessor", preprocessor),
+                (
+                    "smote",
+                    SMOTE(
+                        random_state=RANDOM_STATE,
+                        sampling_strategy=sampling_strategy,
+                        k_neighbors=5,
+                    ),
+                ),
                 ("xgb", XGBClassifier(**OPTIMAL_XGBOOST_PARAMS)),
             ]
         )
@@ -200,14 +284,14 @@ def train_xgboost_no_leakage(df, feature_cols, enable_tuning=None):
         print_subsection_header("Hyperparameter Tuning")
 
         param_grid = {
-            "xgb__n_estimators": randint(200, 500),
-            "xgb__max_depth": randint(4, 10),
-            "xgb__learning_rate": uniform(0.05, 0.25),
-            "xgb__subsample": uniform(0.7, 0.3),
-            "xgb__colsample_bytree": uniform(0.7, 0.3),
-            "xgb__gamma": uniform(0, 0.5),
-            "xgb__reg_alpha": uniform(0, 1),
-            "xgb__reg_lambda": uniform(0.5, 1.5),
+            "xgb__n_estimators": randint(400, 700),
+            "xgb__max_depth": randint(5, 9),
+            "xgb__learning_rate": uniform(0.05, 0.15),
+            "xgb__subsample": uniform(0.75, 0.2),
+            "xgb__colsample_bytree": uniform(0.75, 0.2),
+            "xgb__gamma": uniform(0, 1.0),
+            "xgb__reg_alpha": uniform(0, 1.5),
+            "xgb__reg_lambda": uniform(1.0, 2.5),
         }
 
         cv = StratifiedKFold(n_splits=CV_FOLDS, shuffle=True, random_state=RANDOM_STATE)
@@ -215,7 +299,7 @@ def train_xgboost_no_leakage(df, feature_cols, enable_tuning=None):
         search = RandomizedSearchCV(
             pipeline,
             param_grid,
-            n_iter=20,
+            n_iter=30,
             cv=cv,
             scoring=CV_SCORING,
             n_jobs=-1,
@@ -229,6 +313,10 @@ def train_xgboost_no_leakage(df, feature_cols, enable_tuning=None):
         pipeline = search.best_estimator_
         best_cv_score = search.best_score_
         print(f"\n✓ Best CV {CV_SCORING}: {best_cv_score:.4f}")
+
+        print("\n✓ Best parameters found:")
+        for param, value in search.best_params_.items():
+            print(f"  {param}: {value}")
     else:
         print_subsection_header("Training with Optimal Parameters")
         pipeline.fit(X_train_selected, y_train)
@@ -247,7 +335,15 @@ def train_xgboost_no_leakage(df, feature_cols, enable_tuning=None):
     metrics["best_cv_score"] = best_cv_score
     metrics["tuning_enabled"] = enable_tuning
 
-    return pipeline, metrics, selected_features, selector
+    # Save preprocessing info for prediction
+    preprocessing_info = {
+        "numerical_features": numerical_features,
+        "categorical_features": categorical_features,
+        "numerical_indices": numerical_indices,
+        "categorical_indices": categorical_indices,
+    }
+
+    return pipeline, metrics, selected_features, selector, preprocessing_info
 
 
 # ============================================================================
@@ -383,29 +479,26 @@ def evaluate_model(
 # ============================================================================
 
 
-# In main() function, save candidate_features to model_data
-
-
 def main():
     """Main training pipeline with NO data leakage"""
     print("=" * 80)
-    print("DELOITTE CASE STUDY - MODEL TRAINING (ENHANCED)")
+    print("DELOITTE CASE STUDY - MODEL TRAINING (NO LEAKAGE)")
     print("=" * 80)
 
     # 1. Load data
     print("\n[1/4] Loading preprocessed data...")
     df_eu = load_csv_with_info(EU_CLEAN_FILE, "EU Passengers (Clean)")
 
-    # 2. Define candidate features - ENHANCED
+    # 2. Define candidate features (without _scaled suffix now)
     print("\n[2/4] Defining candidate features...")
     all_features = [
-        # Scaled numerical features
-        "age_scaled",
-        "luggage_weight_kg_scaled",
-        "total_flighttime_scaled",
-        "total_traveltime_scaled",
-        "layover_time_scaled",
-        "layover_ratio_log_scaled",
+        # Raw numerical features (will be scaled in pipeline)
+        "age",
+        "luggage_weight_kg",
+        "total_flighttime",
+        "total_traveltime",
+        "layover_time",
+        "layover_ratio_log",
         # Binary features
         "is_male",
         "is_business",
@@ -421,7 +514,7 @@ def main():
         "destination_IATA_1_encoded",
         "departure_IATA_2_encoded",
         "destination_IATA_2_encoded",
-        # NEW: Interaction features
+        # Interaction features
         "business_longhaul",
         "age_business",
         "family_luggage",
@@ -433,9 +526,9 @@ def main():
     print(f"\nCandidate features: {len(candidate_features)}")
 
     # 3. Train model
-    print("\n[3/4] Training XGBoost with proper data handling...")
-    xgb_pipeline, xgb_metrics, selected_features, selector = train_xgboost_no_leakage(
-        df_eu, candidate_features
+    print("\n[3/4] Training XGBoost with proper pipeline...")
+    xgb_pipeline, xgb_metrics, selected_features, selector, preprocessing_info = (
+        train_xgboost_no_leakage(df_eu, candidate_features)
     )
 
     # 4. Save model
@@ -445,9 +538,10 @@ def main():
     model_data = {
         "model": xgb_pipeline,
         "feature_selector": selector,
+        "preprocessing_info": preprocessing_info,
         "model_type": "XGBoost with SMOTE (No Leakage)",
         "feature_cols": selected_features,
-        "candidate_features": candidate_features,  # SAVE THIS!
+        "candidate_features": candidate_features,
         "metrics": xgb_metrics,
         "trained_date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
@@ -459,7 +553,7 @@ def main():
 
     # Summary
     print_section_header("TRAINING COMPLETE")
-    print(f"\n✓ Model:               XGBoost with SMOTE")
+    print(f"\n✓ Model:               XGBoost with SMOTE (No Leakage)")
     print(f"✓ Features Used:       {len(selected_features)}/{len(candidate_features)}")
     print(
         f"✓ Test Accuracy:       {xgb_metrics['test_accuracy']:.4f} ({xgb_metrics['test_accuracy'] * 100:.2f}%)"
@@ -468,13 +562,18 @@ def main():
     print(
         f"✓ Overfitting:         {xgb_metrics['train_accuracy'] - xgb_metrics['test_accuracy']:.4f}"
     )
+    print(f"\n✅ NO DATA LEAKAGE:")
+    print(f"   • Scaling done INSIDE pipeline on training data only")
+    print(f"   • Feature selection done on training data only")
+    print(f"   • XGBoost handles NaN natively (no fillna)")
 
     return {
         "pipeline": xgb_pipeline,
         "selected_features": selected_features,
-        "candidate_features": candidate_features,  # Return this too
+        "candidate_features": candidate_features,
         "metrics": xgb_metrics,
         "selector": selector,
+        "preprocessing_info": preprocessing_info,
     }
 
 
