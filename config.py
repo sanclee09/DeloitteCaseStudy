@@ -1,5 +1,7 @@
 import os
 
+import numpy as np
+
 # ============================================================================
 # FILE PATHS
 # ============================================================================
@@ -69,7 +71,7 @@ OVERHEAD_PCT = 0.05  # 5% of revenue
 # ============================================================================
 
 # Layover time bins (in minutes)
-LAYOVER_BINS = [-1, 0, 60, 180, 1000]
+LAYOVER_BINS = [-np.inf, 30, 90, 180, np.inf]
 LAYOVER_LABELS = ["no_layover", "short", "medium", "long"]
 
 # Outlier detection thresholds
@@ -108,20 +110,20 @@ OPTIMAL_XGBOOST_PARAMS = {
     # Sampling
     "subsample": 0.9,  # Slightly reduced
     "colsample_bytree": 0.9,  # Slightly reduced
-    "colsample_bylevel": 0.9,  # NEW: Additional regularization
+    "colsample_bylevel": 0.9,  # Additional regularization
     # Regularization
     "gamma": 0.5,  # Increased from 0.3927
     "reg_alpha": 0.5,  # Increased from 0.3723
     "reg_lambda": 2.0,  # Increased from 1.8803
-    "min_child_weight": 3,  # NEW: Prevent overfitting
+    "min_child_weight": 3,  # Prevent overfitting
     # Performance
     "objective": "multi:softprob",
     "eval_metric": "mlogloss",
     "random_state": RANDOM_STATE,
     "n_jobs": -1,
     "verbosity": 0,
-    "tree_method": "hist",  # NEW: Faster training
-    "max_bin": 256,  # NEW: More granular splits
+    "tree_method": "hist",  # Faster training
+    "max_bin": 256,  # More granular splits
 }
 
 # XGBoost base parameters (for when tuning is enabled)

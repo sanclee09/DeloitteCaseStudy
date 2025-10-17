@@ -33,7 +33,7 @@ def load_model_and_data():
         model_data["model"],
         model_data["feature_cols"],
         model_data.get("feature_selector"),
-        model_data.get("candidate_features", model_data["feature_cols"]),  # NEW!
+        model_data.get("candidate_features", model_data["feature_cols"]),
         df_ww,
     )
 
@@ -51,11 +51,10 @@ def predict_worldwide_spending(
 
     print("Preparing features for prediction...")
 
-    # Use provided candidate_features or fall back to feature_cols
     if candidate_features is None:
         candidate_features = feature_cols
 
-    # Verify all features exist in df_ww
+    # Verify all features exist
     missing_features = [f for f in candidate_features if f not in df_ww.columns]
     if missing_features:
         print(f"\n⚠️  Warning: Missing {len(missing_features)} features in WW dataset:")
@@ -64,20 +63,19 @@ def predict_worldwide_spending(
         if len(missing_features) > 10:
             print(f"    ... and {len(missing_features) - 10} more")
         print("\n✗ Cannot proceed without all required features.")
-        print("   Please re-run preprocessing to generate these features.")
         return None
 
-    # If we have a feature selector, apply it
+    # Apply feature selection
     if selector:
-        X_ww = df_ww[candidate_features].fillna(0).values
-        X_ww_selected, _ = selector.transform(X_ww, candidate_features)
+        X_ww = df_ww[candidate_features].values
+        X_ww_selected, _ = selector.apply_feature_selection(X_ww, candidate_features)
     else:
-        X_ww_selected = df_ww[feature_cols].fillna(0).values
+        X_ww_selected = df_ww[feature_cols].values
 
     print(f"  Features: {len(feature_cols)}")
     print(f"  Passengers: {len(X_ww_selected):,}")
 
-    # Predict
+    # Predict (no pipeline, just direct model prediction!)
     print("\nGenerating predictions...")
     df_ww["predicted_category"] = model.predict(X_ww_selected)
 

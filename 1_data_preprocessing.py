@@ -95,7 +95,7 @@ def engineer_basic_features(df):
 
     df = df.copy()
 
-    # 1. Parse dates and calculate age
+    # 1. Parse dates and calculate age using reference date (2019-12-31)
     df["birth_date_parsed"] = df["birth_date"].apply(parse_birth_date)
     df["age"] = df["birth_date_parsed"].apply(calculate_age)
     print("  ✓ Created: age")
@@ -113,8 +113,6 @@ def engineer_basic_features(df):
 
     # 4. Handle missing values
     df["layover_time"] = df["layover_time"].fillna(0)
-    if df["age"].isna().sum() > 0:
-        df["age"] = df["age"].fillna(df["age"].median())
 
     return df
 
@@ -134,18 +132,15 @@ def engineer_advanced_features(df):
     df["layover_ratio_log"] = np.log1p(df["layover_ratio"])
     print("  ✓ Created: layover_ratio, layover_ratio_log")
 
-    # 3. Layover category (ordinal) - FIXED: handle NaN
+    # 3. Layover category (ordinal)
     df["layover_category"] = pd.cut(
         df["layover_time"],
         bins=LAYOVER_BINS,
         labels=range(len(LAYOVER_LABELS)),
         include_lowest=True,
     )
-    # Fill any NaN values before converting to int
-    df["layover_category"] = df["layover_category"].fillna(0).astype(int)
     print("  ✓ Created: layover_category (ordinal)")
 
-    # 4. NEW: Critical interaction features
     # Business travelers with long flights spend more
     df["business_longhaul"] = df["is_business"] * df["is_long_haul"]
 
@@ -166,26 +161,23 @@ def engineer_advanced_features(df):
     print("  ✓ Created: business_longhaul, age_business, family_luggage")
     print("  ✓ Created: layover_shopping_time, male_business")
 
-    # 5. Flight time bins (categorical spending patterns) - FIXED: handle NaN
+    # 5. Flight time bins (categorical spending patterns)
     df["flight_time_category"] = pd.cut(
         df["total_flighttime"],
-        bins=[0, 180, 360, 600, 2000],
+        bins=[-np.inf, 180, 360, 600, np.inf],
         labels=[0, 1, 2, 3],
         include_lowest=True,
     )
-    # Fill any NaN values before converting to int
-    df["flight_time_category"] = df["flight_time_category"].fillna(1).astype(int)
+    df["flight_time_category"] = df["flight_time_category"].astype("Int64")
     print("  ✓ Created: flight_time_category")
 
-    # 6. Age groups (spending patterns vary by age) - FIXED: handle NaN
+    # 6. Age groups (spending patterns vary by age)
     df["age_group"] = pd.cut(
         df["age"],
         bins=[0, 25, 35, 50, 65, 100],
         labels=[0, 1, 2, 3, 4],
         include_lowest=True,
     )
-    # Fill any NaN values before converting to int (use median age group = 2)
-    df["age_group"] = df["age_group"].fillna(2).astype(int)
     print("  ✓ Created: age_group")
 
     # 7. Polynomial features for key numerical variables
@@ -255,45 +247,6 @@ def encode_categorical_features(df_eu, df_ww, df_airports):
     return df_eu, df_ww, encoder
 
 
-def scale_numerical_features(df_eu, df_ww):
-    """
-    Standardize numerical features
-    Fit on EU data, transform both datasets
-    """
-    print_subsection_header("Scaling Numerical Features")
-
-    df_eu = df_eu.copy()
-    df_ww = df_ww.copy()
-
-    # Features to scale
-    numerical_features = [
-        "age",
-        "luggage_weight_kg",
-        "total_flighttime",
-        "total_traveltime",
-        "layover_time",
-        "layover_ratio_log",
-    ]
-
-    features_to_scale = [f for f in numerical_features if f in df_eu.columns]
-
-    # Fit scaler on EU data
-    scaler = StandardScaler()
-    scaler.fit(df_eu[features_to_scale])
-
-    # Transform both datasets
-    df_eu_scaled = scaler.transform(df_eu[features_to_scale])
-    df_ww_scaled = scaler.transform(df_ww[features_to_scale])
-
-    # Create scaled columns
-    for i, feature in enumerate(features_to_scale):
-        df_eu[f"{feature}_scaled"] = df_eu_scaled[:, i]
-        df_ww[f"{feature}_scaled"] = df_ww_scaled[:, i]
-        print(f"  ✓ Scaled: {feature}")
-
-    return df_eu, df_ww, scaler
-
-
 # ============================================================================
 # COMPLETE FEATURE ENGINEERING PIPELINE
 # ============================================================================
@@ -334,14 +287,20 @@ def perform_eda(df_eu):
     """Perform exploratory data analysis"""
     print_section_header("EXPLORATORY DATA ANALYSIS")
 
-    # 1. Target distribution
+    # 1. Target distribution - spending categories
     print_subsection_header("Target Distribution")
     print_category_distribution(df_eu, "amount_spent_cat", normalize=True)
 
-    # 2. Key relationships
+    # 2. Some spending patterns for binary features
     print_subsection_header("Spending by Key Groups")
 
-    for group in ["is_business", "has_family", "has_connection", "is_male"]:
+    for group in [
+        "is_business",
+        "has_family",
+        "has_connection",
+        "is_male",
+        "is_long_haul",
+    ]:
         if group in df_eu.columns:
             print(f"\nBy {group}:")
             print(df_eu.groupby(group)["amount_spent_cat"].agg(["mean", "count"]))
@@ -349,16 +308,38 @@ def perform_eda(df_eu):
     # 3. Correlation analysis
     print_subsection_header("Correlation with Target")
 
-    numeric_cols = [c for c in df_eu.columns if c.endswith("_scaled")] + [
+    numeric_cols = [
+        # Raw numerical features
+        "age",
+        "luggage_weight_kg",
+        "total_flighttime",
+        "total_traveltime",
+        "layover_time",
+        "layover_ratio",
+        "layover_ratio_log",
+        # Binary features
         "is_business",
         "has_family",
         "has_connection",
         "is_male",
-        "travel_complexity",
         "is_long_haul",
+        # Categorical ordinal features
         "layover_category",
+        "flight_time_category",
+        "age_group",
+        # Interaction features
+        "business_longhaul",
+        "age_business",
+        "family_luggage",
+        "layover_shopping_time",
+        "male_business",
+        # Polynomial features
+        "age_squared",
+        "luggage_squared",
+        "flighttime_log",
     ]
 
+    # Filter to only columns that exist
     numeric_cols = [c for c in numeric_cols if c in df_eu.columns]
 
     if "amount_spent_cat" in df_eu.columns:
@@ -369,7 +350,7 @@ def perform_eda(df_eu):
             ascending=False
         )
 
-        print("\nTop correlations with spending:")
+        print("\nTop 10 correlations with spending:")
         print(correlations.head(10))
 
         # Identify strong predictors
