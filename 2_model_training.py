@@ -2,29 +2,20 @@ import pickle
 import warnings
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.compose import ColumnTransformer
 from sklearn.model_selection import (
     train_test_split,
     RandomizedSearchCV,
     StratifiedKFold,
-    cross_val_score,
 )
-from sklearn.feature_selection import VarianceThreshold, SelectFromModel
+from sklearn.feature_selection import VarianceThreshold
 from sklearn.metrics import (
     classification_report,
     confusion_matrix,
     f1_score,
     accuracy_score,
 )
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import Pipeline
 from xgboost import XGBClassifier
-from imblearn.over_sampling import SMOTE
-from imblearn.pipeline import Pipeline as ImbPipeline
 from scipy.stats import randint, uniform
-import numpy as np
-import pandas as pd
 
 warnings.filterwarnings("ignore")
 
@@ -35,6 +26,43 @@ from utils import *
 # ============================================================================
 # FEATURE SELECTION - NO LEAKAGE
 # ============================================================================
+
+
+def get_candidate_features(df_eu):
+    """
+    Automatically extract all engineered features from preprocessed data
+    Excludes: raw data columns, target, and intermediate columns
+    """
+    # Columns to exclude
+    exclude_cols = [
+        # Original raw columns
+        "name",
+        "sex",
+        "birth_date",
+        "shopped_at",
+        "business_trip",
+        "traveled_with_family",
+        "luggage",
+        "flight_number_1",
+        "departure_IATA_1",
+        "destination_IATA_1",
+        "flight_number_2",
+        "departure_IATA_2",
+        "destination_IATA_2",
+        # Target variable
+        "amount_spent_cat",
+        # Intermediate columns not used as features
+        "birth_date_parsed",
+    ]
+
+    # Get all numeric and engineered feature columns
+    candidate_features = [col for col in df_eu.columns if col not in exclude_cols]
+
+    print(f"\n✓ Auto-extracted {len(candidate_features)} candidate features:")
+    for i, feat in enumerate(sorted(candidate_features), 1):
+        print(f"  {i:2d}. {feat}")
+
+    return candidate_features
 
 
 class FeatureSelector:
@@ -236,7 +264,7 @@ def train_xgboost_no_leakage(df, feature_cols, enable_tuning=None):
         search = RandomizedSearchCV(
             model,
             param_grid,
-            n_iter=30,
+            n_iter=100,
             cv=cv,
             scoring=CV_SCORING,
             n_jobs=-1,
@@ -414,38 +442,7 @@ def main():
 
     # 2. Define candidate features
     print("\n[2/4] Defining candidate features...")
-    all_features = [
-        # Raw numerical features (no scaling needed!)
-        "age",
-        "luggage_weight_kg",
-        "total_flighttime",
-        "total_traveltime",
-        "layover_time",
-        "layover_ratio_log",
-        # Binary features
-        "is_male",
-        "is_business",
-        "has_family",
-        "is_long_haul",
-        # Categorical features
-        "layover_category",
-        "flight_time_category",
-        "age_group",
-        # Encoded airport features
-        "shopped_at_encoded",
-        "departure_IATA_1_encoded",
-        "destination_IATA_1_encoded",
-        "departure_IATA_2_encoded",
-        "destination_IATA_2_encoded",
-        # Interaction features
-        "business_longhaul",
-        "age_business",
-        "family_luggage",
-        "layover_shopping_time",
-        "male_business",
-    ]
-
-    candidate_features = [f for f in all_features if f in df_eu.columns]
+    candidate_features = get_candidate_features(df_eu)
     print(f"\nCandidate features: {len(candidate_features)}")
 
     # 3. Train model

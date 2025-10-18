@@ -41,7 +41,7 @@ FEATURE_IMPORTANCE_FILE = os.path.join(OUTPUT_DIR, "feature_importance.png")
 CATEGORY_MIDPOINTS = {0: 5, 1: 30, 2: 100, 3: 225, 4: 375}
 
 # Reference date for age calculation
-REFERENCE_DATE = "2019-12-31"
+REFERENCE_DATE = "2019-7-31"
 
 # ============================================================================
 # REALISTIC P&L ASSUMPTIONS
@@ -97,7 +97,6 @@ CV_SCORING = "f1_macro"
 # OPTIMAL HYPERPARAMETERS
 # ============================================================================
 
-# Set to False to use optimal params directly (faster, no tuning)
 # Set to True to re-run hyperparameter search (slower, ~30 min)
 ENABLE_HYPERPARAMETER_TUNING = False
 

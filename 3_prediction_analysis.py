@@ -120,17 +120,19 @@ def calculate_revenue_by_airport(df_ww):
         count = len(df_ww[df_ww["predicted_category"] == cat])
         print(f"  Category {cat}: €{midpoint:3d} ({count:,} passengers)")
 
+    # Create revenue column : category 2 -> €100, etc.
     df_ww["predicted_revenue"] = df_ww["predicted_category"].map(CATEGORY_MIDPOINTS)
 
-    # Calculate revenue by airport
+    # Aggregate revenue by airport
     print("\nAggregating revenue by airport...")
     print("Note: Data represents full year 2019 passenger surveys")
 
     revenue_by_airport = (
+        # Group all passengers by their shopping airport (e.g., "HND", "DXB", "JFK")
         df_ww.groupby("shopped_at")
         .agg(
             {
-                "predicted_revenue": "sum",
+                "predicted_revenue": "sum",  # Sum all revenue for passengers at this airport
                 "name": "count",
                 "prediction_confidence": "mean",
             }
