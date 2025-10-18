@@ -75,7 +75,7 @@ def predict_worldwide_spending(
     print(f"  Features: {len(feature_cols)}")
     print(f"  Passengers: {len(X_ww_selected):,}")
 
-    # Predict (no pipeline, just direct model prediction!)
+    # Predict
     print("\nGenerating predictions...")
     df_ww["predicted_category"] = model.predict(X_ww_selected)
 
@@ -105,13 +105,13 @@ def predict_worldwide_spending(
 
 
 # ============================================================================
-# REVENUE CALCULATION WITH REALISTIC PROFIT MARGINS
+# REVENUE CALCULATION
 # ============================================================================
 
 
 def calculate_revenue_by_airport(df_ww):
-    """Calculate expected revenue per airport with realistic P&L"""
-    print_section_header("REVENUE & PROFIT CALCULATION (REALISTIC)")
+    """Calculate expected revenue per airport"""
+    print_section_header("REVENUE CALCULATION")
 
     # Map categories to revenue using midpoints
     print("Mapping predicted categories to revenue...")
@@ -124,6 +124,8 @@ def calculate_revenue_by_airport(df_ww):
 
     # Calculate revenue by airport
     print("\nAggregating revenue by airport...")
+    print("Note: Data represents full year 2019 passenger surveys")
+
     revenue_by_airport = (
         df_ww.groupby("shopped_at")
         .agg(
@@ -136,33 +138,34 @@ def calculate_revenue_by_airport(df_ww):
         .rename(
             columns={
                 "name": "passenger_count",
-                "predicted_revenue": "total_revenue",
+                "predicted_revenue": "annual_revenue",
                 "prediction_confidence": "avg_confidence",
             }
         )
     )
 
-    # Calculate monthly and annual revenue
-    revenue_by_airport["monthly_revenue"] = revenue_by_airport["total_revenue"]
-    revenue_by_airport["annual_revenue"] = (
-        revenue_by_airport["monthly_revenue"] * MONTHS_PER_YEAR
+    # Calculate monthly revenue (annual divided by 12)
+    revenue_by_airport["monthly_revenue"] = (
+        revenue_by_airport["annual_revenue"] / MONTHS_PER_YEAR
     )
 
-    # Calculate revenue per passenger
+    # Calculate revenue per passenger (based on annual)
     revenue_by_airport["revenue_per_passenger"] = (
-        revenue_by_airport["monthly_revenue"] / revenue_by_airport["passenger_count"]
+        revenue_by_airport["annual_revenue"] / revenue_by_airport["passenger_count"]
     )
 
-    # Sort by monthly revenue
+    # Sort by annual revenue
     revenue_by_airport = revenue_by_airport.sort_values(
-        "monthly_revenue", ascending=False
+        "annual_revenue", ascending=False
     )
 
-    print_subsection_header("Revenue by Airport (Monthly)")
+    print_subsection_header("Revenue by Airport")
+    print("(Data represents full year 2019)\n")
     print(
         revenue_by_airport[
             [
                 "passenger_count",
+                "annual_revenue",
                 "monthly_revenue",
                 "revenue_per_passenger",
                 "avg_confidence",
@@ -174,156 +177,8 @@ def calculate_revenue_by_airport(df_ww):
 
 
 # ============================================================================
-# REALISTIC P&L CALCULATION
+# LEASE DATA PARSING
 # ============================================================================
-
-
-def calculate_realistic_profitability(revenue_by_airport):
-    """
-    Calculate profitability with realistic P&L components:
-    - Revenue (from predictions)
-    - COGS (cost of goods sold)
-    - Operating expenses (staff, overhead)
-    - Rent (lease costs)
-    """
-    print_section_header("REALISTIC P&L ANALYSIS")
-
-    # Load lease data
-    df_lease = parse_lease_data()
-    if df_lease is None:
-        print("✗ Cannot calculate profitability without lease data")
-        return None
-
-    # Merge revenue with costs
-    profitability = revenue_by_airport.merge(
-        df_lease[["airport", "sqm", "monthly_cost", "annual_cost"]],
-        left_index=True,
-        right_on="airport",
-    ).set_index("airport")
-
-    # === REALISTIC P&L COMPONENTS ===
-
-    print_subsection_header("P&L Components")
-
-    # 1. GROSS PROFIT = Revenue - COGS
-    print(f"\n1. Gross Margin: {GROSS_MARGIN:.1%}")
-    print(f"   (COGS = {1 - GROSS_MARGIN:.1%} of revenue)")
-    profitability["cogs"] = profitability["monthly_revenue"] * (1 - GROSS_MARGIN)
-    profitability["gross_profit"] = profitability["monthly_revenue"] * GROSS_MARGIN
-
-    # 2. OPERATING EXPENSES
-    print(f"\n2. Operating Expenses:")
-
-    # Staff costs (per sqm)
-    print(f"   Staff cost: €{STAFF_COST_PER_SQM}/sqm/month")
-    profitability["staff_cost"] = profitability["sqm"] * STAFF_COST_PER_SQM
-
-    # Overhead (% of revenue)
-    print(f"   Overhead: {OVERHEAD_PCT:.1%} of revenue")
-    profitability["overhead_cost"] = profitability["monthly_revenue"] * OVERHEAD_PCT
-
-    profitability["total_opex"] = (
-        profitability["staff_cost"] + profitability["overhead_cost"]
-    )
-
-    # 3. RENT (already have this)
-    print(f"\n3. Rent: Per airport (from lease terms)")
-
-    # 4. NET PROFIT
-    profitability["monthly_profit"] = (
-        profitability["gross_profit"]
-        - profitability["total_opex"]
-        - profitability["monthly_cost"]  # rent
-    )
-
-    profitability["annual_profit"] = profitability["monthly_profit"] * MONTHS_PER_YEAR
-
-    # === METRICS ===
-
-    # Profit margin (net profit / revenue)
-    profitability["profit_margin"] = (
-        profitability["monthly_profit"] / profitability["monthly_revenue"] * 100
-    )
-
-    # Profit per passenger
-    profitability["profit_per_passenger"] = (
-        profitability["monthly_profit"] / profitability["passenger_count"]
-    )
-
-    # Profit per sqm
-    profitability["profit_per_sqm"] = (
-        profitability["monthly_profit"] / profitability["sqm"]
-    )
-
-    # ROI (monthly)
-    profitability["roi_monthly"] = (
-        profitability["monthly_profit"]
-        / (profitability["monthly_cost"] + profitability["total_opex"])
-        * 100
-    )
-
-    # Sort by annual profit
-    profitability = profitability.sort_values("annual_profit", ascending=False)
-
-    # Display detailed P&L
-    print_subsection_header("DETAILED P&L BY AIRPORT")
-
-    for idx, (airport, row) in enumerate(profitability.iterrows(), 1):
-        medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(idx, f"{idx}.")
-
-        print(f"\n{medal} {airport}")
-        print(f"   {'─' * 50}")
-        print(f"   REVENUE & TRAFFIC:")
-        print(f"     Passengers:          {row['passenger_count']:>10,.0f}")
-        print(
-            f"     Revenue/passenger:   {format_currency(row['revenue_per_passenger']):>10s}"
-        )
-        print(
-            f"     Monthly Revenue:     {format_currency(row['monthly_revenue']):>10s}"
-        )
-        print(f"\n   COSTS:")
-        print(
-            f"     COGS ({1 - GROSS_MARGIN:.0%}):          {format_currency(row['cogs']):>10s}"
-        )
-        print(
-            f"     Staff ({row['sqm']:.0f} sqm):      {format_currency(row['staff_cost']):>10s}"
-        )
-        print(
-            f"     Overhead ({OVERHEAD_PCT:.0%}):      {format_currency(row['overhead_cost']):>10s}"
-        )
-        print(f"     Rent:                {format_currency(row['monthly_cost']):>10s}")
-        print(f"     ──────────────────────────────")
-        print(
-            f"     Total Costs:         {format_currency(row['cogs'] + row['total_opex'] + row['monthly_cost']):>10s}"
-        )
-        print(f"\n   PROFITABILITY:")
-        print(f"     Gross Profit:        {format_currency(row['gross_profit']):>10s}")
-        print(
-            f"     Monthly Profit:      {format_currency(row['monthly_profit']):>10s}"
-        )
-        print(f"     Annual Profit:       {format_currency(row['annual_profit']):>10s}")
-        print(f"\n   METRICS:")
-        print(
-            f"     Profit Margin:       {format_percentage(row['profit_margin']):>10s}"
-        )
-        print(
-            f"     Profit/passenger:    {format_currency(row['profit_per_passenger']):>10s}"
-        )
-        print(
-            f"     Profit/sqm:          {format_currency(row['profit_per_sqm']):>10s}"
-        )
-        print(f"     ROI (monthly):       {format_percentage(row['roi_monthly']):>10s}")
-
-        if row["monthly_profit"] < 0:
-            print(f"\n   ⚠️  WARNING: UNPROFITABLE LOCATION!")
-        elif row["profit_margin"] < 5:
-            print(f"\n   ⚠️  WARNING: Very thin margins (<5%)")
-
-    # Save results
-    if SAVE_INTERMEDIATE:
-        save_dataframe(profitability, PROFITABILITY_FILE, "Profitability Ranking")
-
-    return profitability
 
 
 def parse_lease_data():
@@ -361,112 +216,119 @@ def parse_lease_data():
 
 
 # ============================================================================
-# SENSITIVITY ANALYSIS
+# SIMPLE PROFITABILITY CALCULATION
 # ============================================================================
 
 
-def perform_sensitivity_analysis(profitability):
-    """Comprehensive sensitivity analysis"""
-    print_section_header("SENSITIVITY ANALYSIS")
+def calculate_simple_profitability(revenue_by_airport):
+    """
+    Calculate profitability as instructed: Revenue - Leasing Costs
 
-    profitability_copy = profitability.copy()
+    This follows the case study instructions:
+    "ranked by expected profit (i.e. revenue minus leasing costs)"
+    """
+    print_section_header("PROFITABILITY CALCULATION")
+    print("(Revenue - Leasing Costs)")
 
-    # Scenario 1: Revenue variance
-    print_subsection_header("Scenario 1: Revenue Variance (±10%)")
+    # Load lease data
+    df_lease = parse_lease_data()
+    if df_lease is None:
+        print("✗ Cannot calculate profitability without lease data")
+        return None
 
-    profitability_copy["monthly_profit_low"] = (
-        (profitability_copy["monthly_revenue"] * REVENUE_VARIANCE_LOW * GROSS_MARGIN)
-        - profitability_copy["total_opex"]
-        - profitability_copy["monthly_cost"]
+    # Merge revenue with lease costs
+    profitability = revenue_by_airport.merge(
+        df_lease[["airport", "sqm", "monthly_cost", "annual_cost"]],
+        left_index=True,
+        right_on="airport",
+    ).set_index("airport")
+
+    # Simple calculation: Revenue - Rent
+    profitability["monthly_profit"] = (
+        profitability["monthly_revenue"] - profitability["monthly_cost"]
+    )
+    profitability["annual_profit"] = (
+        profitability["annual_revenue"] - profitability["annual_cost"]
     )
 
-    profitability_copy["monthly_profit_high"] = (
-        (profitability_copy["monthly_revenue"] * REVENUE_VARIANCE_HIGH * GROSS_MARGIN)
-        - profitability_copy["total_opex"]
-        - profitability_copy["monthly_cost"]
+    # Calculate metrics
+    profitability["profit_margin"] = (
+        profitability["monthly_profit"] / profitability["monthly_revenue"] * 100
     )
 
-    print("\nTop 3 airports - profit range:")
-    for airport in profitability_copy.head(3).index:
-        row = profitability_copy.loc[airport]
+    profitability["profit_per_passenger"] = (
+        profitability["annual_profit"] / profitability["passenger_count"]
+    )
+
+    profitability["profit_per_sqm"] = (
+        profitability["monthly_profit"] / profitability["sqm"]
+    )
+
+    # Sort by annual profit
+    profitability = profitability.sort_values("annual_profit", ascending=False)
+
+    # Display results
+    print_subsection_header("PROFITABILITY RANKING")
+    print("(Based on full year 2019 data)\n")
+
+    print(
+        f"{'Rank':<6} {'Airport':<8} {'Annual Revenue':>15} {'Annual Rent':>15} "
+        f"{'Annual Profit':>15} {'Margin':>10}"
+    )
+    print("─" * 80)
+
+    for idx, (airport, row) in enumerate(profitability.iterrows(), 1):
+        medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(idx, f"{idx}.")
+
         print(
-            f"{airport:5s}: {format_currency(row['monthly_profit_low']):>10s} to "
-            + f"{format_currency(row['monthly_profit_high']):>10s}"
+            f"{medal:<6} {airport:<8} "
+            f"{format_currency(row['annual_revenue']):>15} "
+            f"{format_currency(row['annual_cost']):>15} "
+            f"{format_currency(row['annual_profit']):>15} "
+            f"{format_percentage(row['profit_margin']):>10}"
         )
 
-    # Scenario 2: Gross margin variance
-    print_subsection_header("Scenario 2: Gross Margin Variance")
+    # Detailed breakdown for top 3
+    print("\n" + "=" * 80)
+    print("TOP 3 AIRPORTS - DETAILED BREAKDOWN")
+    print("=" * 80)
 
-    for gm in [0.55, 0.60, 0.65]:  # 55%, 60%, 65%
-        profitability_copy[f"profit_gm_{int(gm * 100)}"] = (
-            (profitability_copy["monthly_revenue"] * gm)
-            - profitability_copy["total_opex"]
-            - profitability_copy["monthly_cost"]
-        )
+    for idx, (airport, row) in enumerate(profitability.head(3).iterrows(), 1):
+        medal = {1: "🥇", 2: "🥈", 3: "🥉"}[idx]
 
-    print("\nTop 3 airports at different gross margins:")
-    print(f"{'Airport':<8} {'GM=55%':>12} {'GM=60%':>12} {'GM=65%':>12}")
-    print("─" * 50)
-    for airport in profitability_copy.head(3).index:
-        row = profitability_copy.loc[airport]
+        print(f"\n{medal} RANK #{idx}: {airport}")
+        print(f"{'─' * 60}")
         print(
-            f"{airport:<8} "
-            f"{format_currency(row['profit_gm_55']):>12} "
-            f"{format_currency(row['profit_gm_60']):>12} "
-            f"{format_currency(row['profit_gm_65']):>12}"
+            f"  Passenger Volume:        {row['passenger_count']:>10,} passengers/year"
+        )
+        print(f"  Store Size:              {row['sqm']:>10,.0f} sqm")
+        print(
+            f"  Revenue per Passenger:   {format_currency(row['revenue_per_passenger']):>10}"
+        )
+        print(f"  Prediction Confidence:   {row['avg_confidence']:>10.1%}")
+        print(f"\n  ANNUAL FINANCIALS:")
+        print(
+            f"    Revenue:               {format_currency(row['annual_revenue']):>10}"
+        )
+        print(f"    Leasing Cost:          {format_currency(row['annual_cost']):>10}")
+        print(f"    ────────────────────────────────")
+        print(f"    Profit:                {format_currency(row['annual_profit']):>10}")
+        print(f"\n  METRICS:")
+        print(
+            f"    Profit Margin:         {format_percentage(row['profit_margin']):>10}"
+        )
+        print(
+            f"    Profit per Passenger:  {format_currency(row['profit_per_passenger']):>10}"
+        )
+        print(
+            f"    Profit per sqm/month:  {format_currency(row['profit_per_sqm']):>10}"
         )
 
-    # Scenario 3: Ranking stability
-    print_subsection_header("Scenario 3: Ranking Stability")
+    # Save results
+    if SAVE_INTERMEDIATE:
+        save_dataframe(profitability, PROFITABILITY_FILE, "Profitability Ranking")
 
-    original_top3 = profitability.head(3).index.tolist()
-    low_ranking = profitability_copy.nlargest(3, "monthly_profit_low").index.tolist()
-    high_ranking = profitability_copy.nlargest(3, "monthly_profit_high").index.tolist()
-
-    print(f"Original top 3:     {original_top3}")
-    print(f"Low revenue case:   {low_ranking}")
-    print(f"High revenue case:  {high_ranking}")
-
-    if original_top3 == low_ranking == high_ranking:
-        print("\n✓ Ranking is STABLE across ±10% revenue scenarios")
-    else:
-        print("\n⚠️  Ranking changes under different scenarios")
-
-    # Scenario 4: Break-even analysis
-    print_subsection_header("Scenario 4: Break-Even Analysis")
-
-    print("\nPassengers needed for break-even:")
-    for airport in profitability.head(5).index:
-        row = profitability.loc[airport]
-
-        # Break-even: revenue_per_passenger * GM * passengers = opex + rent
-        fixed_costs = row["total_opex"] + row["monthly_cost"]
-        profit_per_passenger = (
-            row["revenue_per_passenger"] * GROSS_MARGIN
-            - (row["staff_cost"] + row["overhead_cost"]) / row["passenger_count"]
-        )
-
-        breakeven_passengers = (
-            fixed_costs / profit_per_passenger
-            if profit_per_passenger > 0
-            else float("inf")
-        )
-        current_passengers = row["passenger_count"]
-
-        if current_passengers > breakeven_passengers:
-            margin_of_safety = (
-                (current_passengers - breakeven_passengers) / current_passengers * 100
-            )
-            print(
-                f"{airport:5s}: {breakeven_passengers:>8.0f} passengers "
-                f"(safety margin: {margin_of_safety:>5.1f}%)"
-            )
-        else:
-            print(
-                f"{airport:5s}: {breakeven_passengers:>8.0f} passengers ⚠️  ABOVE current volume!"
-            )
-
-    return profitability_copy
+    return profitability
 
 
 # ============================================================================
@@ -474,14 +336,14 @@ def perform_sensitivity_analysis(profitability):
 # ============================================================================
 
 
-def create_profitability_visualizations(profitability, df_ww):
-    """Create comprehensive visualizations"""
+def create_visualizations(profitability, df_ww):
+    """Create profitability visualizations"""
     print_section_header("CREATING VISUALIZATIONS")
 
     fig = plt.figure(figsize=FIGURE_SIZE)
 
     # 1. Predicted spending distribution
-    ax1 = plt.subplot(2, 3, 1)
+    ax1 = plt.subplot(2, 2, 1)
     pred_dist = df_ww["predicted_category"].value_counts().sort_index()
     colors_spending = COLORS["spending_categories"]
     pred_dist.plot(kind="bar", ax=ax1, color=colors_spending)
@@ -500,21 +362,21 @@ def create_profitability_visualizations(profitability, df_ww):
             fontsize=9,
         )
 
-    # 2. Monthly profit (KEY CHART)
-    ax2 = plt.subplot(2, 3, 2)
-    monthly_profits = profitability["monthly_profit"].sort_values(ascending=True)
+    # 2. Annual profit by airport
+    ax2 = plt.subplot(2, 2, 2)
+    annual_profits = profitability["annual_profit"].sort_values(ascending=True)
     colors_profit = [
         COLORS["profit_positive"] if p > 0 else COLORS["profit_negative"]
-        for p in monthly_profits
+        for p in annual_profits
     ]
-    monthly_profits.plot(kind="barh", ax=ax2, color=colors_profit)
-    ax2.set_title("Monthly Net Profit by Airport ⭐", fontweight="bold", fontsize=12)
-    ax2.set_xlabel("Profit (€)")
+    annual_profits.plot(kind="barh", ax=ax2, color=colors_profit)
+    ax2.set_title("Annual Profit by Airport ⭐", fontweight="bold", fontsize=12)
+    ax2.set_xlabel("Annual Profit (€)")
     ax2.axvline(x=0, color="black", linestyle="--", linewidth=2)
 
-    for i, (airport, profit) in enumerate(monthly_profits.items()):
+    for i, (airport, profit) in enumerate(annual_profits.items()):
         ax2.text(
-            profit + (5000 if profit > 0 else -5000),
+            profit + (50000 if profit > 0 else -50000),
             i,
             f"€{profit:,.0f}",
             va="center",
@@ -522,61 +384,36 @@ def create_profitability_visualizations(profitability, df_ww):
             fontweight="bold",
         )
 
-    # 3. Profit margin (realistic now!)
-    ax3 = plt.subplot(2, 3, 3)
+    # 3. Profit margin
+    ax3 = plt.subplot(2, 2, 3)
     profit_margins = profitability["profit_margin"].sort_values(ascending=True)
     colors_margin = [
         COLORS["profit_positive"] if m > 0 else COLORS["profit_negative"]
         for m in profit_margins
     ]
     profit_margins.plot(kind="barh", ax=ax3, color=colors_margin)
-    ax3.set_title("Net Profit Margin by Airport", fontweight="bold")
+    ax3.set_title("Profit Margin by Airport", fontweight="bold")
     ax3.set_xlabel("Profit Margin (%)")
     ax3.axvline(x=0, color="black", linestyle="--", linewidth=2)
 
-    # 4. P&L breakdown (for top airport)
-    ax4 = plt.subplot(2, 3, 4)
-    top_airport = profitability.index[0]
-    top_row = profitability.iloc[0]
-
-    pl_components = {
-        "Revenue": top_row["monthly_revenue"],
-        "COGS": -top_row["cogs"],
-        "Staff": -top_row["staff_cost"],
-        "Overhead": -top_row["overhead_cost"],
-        "Rent": -top_row["monthly_cost"],
-        "Net Profit": top_row["monthly_profit"],
-    }
-
-    colors_pl = ["green", "red", "red", "red", "red", "blue"]
-    ax4.barh(
-        range(len(pl_components)), pl_components.values(), color=colors_pl, alpha=0.7
-    )
-    ax4.set_yticks(range(len(pl_components)))
-    ax4.set_yticklabels(pl_components.keys())
-    ax4.set_title(f"P&L Breakdown - {top_airport}", fontweight="bold")
-    ax4.set_xlabel("Amount (€)")
-    ax4.axvline(x=0, color="black", linestyle="-", linewidth=1)
-
-    # 5. Profit per passenger
-    ax5 = plt.subplot(2, 3, 5)
+    # 4. Profit per passenger
+    ax4 = plt.subplot(2, 2, 4)
     profit_per_pax = profitability["profit_per_passenger"].sort_values(ascending=True)
-    profit_per_pax.plot(kind="barh", ax=ax5, color="steelblue")
-    ax5.set_title("Profit per Passenger", fontweight="bold")
-    ax5.set_xlabel("Profit per Passenger (€)")
-
-    # 6. Profit per sqm
-    ax6 = plt.subplot(2, 3, 6)
-    profit_per_sqm = profitability["profit_per_sqm"].sort_values(ascending=True)
-    profit_per_sqm.plot(kind="barh", ax=ax6, color="darkgreen")
-    ax6.set_title("Profit per sqm", fontweight="bold")
-    ax6.set_xlabel("Profit per sqm (€/month)")
+    colors_pax = [
+        COLORS["profit_positive"] if p > 0 else COLORS["profit_negative"]
+        for p in profit_per_pax
+    ]
+    profit_per_pax.plot(kind="barh", ax=ax4, color=colors_pax)
+    ax4.set_title("Profit per Passenger", fontweight="bold")
+    ax4.set_xlabel("Profit per Passenger (€)")
+    ax4.axvline(x=0, color="black", linestyle="--", linewidth=1)
 
     plt.tight_layout()
 
     if CREATE_VISUALIZATIONS:
         plt.savefig(VISUALIZATION_FILE, dpi=FIGURE_DPI, bbox_inches="tight")
         print(f"✓ Visualizations saved to: {VISUALIZATION_FILE}")
+        plt.close()
 
     return fig
 
@@ -587,7 +424,7 @@ def create_profitability_visualizations(profitability, df_ww):
 
 
 def generate_final_recommendation(profitability):
-    """Generate final recommendation with realistic P&L"""
+    """Generate final recommendation"""
     print_section_header("FINAL RECOMMENDATION")
 
     top_3 = profitability.head(3)
@@ -600,61 +437,53 @@ def generate_final_recommendation(profitability):
         print(f"{medal} RANK #{idx}: {airport}")
         print(f"{'=' * 60}")
         print(f"Expected Annual Profit:    {format_currency(row['annual_profit'])}")
-        print(f"Profit Margin (Net):       {format_percentage(row['profit_margin'])}")
-        print(f"Passenger Volume:          {row['passenger_count']:>10,.0f}")
+        print(f"Profit Margin:             {format_percentage(row['profit_margin'])}")
+        print(f"Passenger Volume:          {row['passenger_count']:>10,}")
         print(
             f"Profit per Passenger:      {format_currency(row['profit_per_passenger'])}"
         )
-        print(f"Profit per sqm:            {format_currency(row['profit_per_sqm'])}")
         print(f"Store Size:                {row['sqm']:.0f} sqm")
-        print(f"ROI (Monthly):             {format_percentage(row['roi_monthly'])}")
         print()
 
     # Primary recommendation
     best_airport = profitability.index[0]
     best_profit = profitability.iloc[0]["annual_profit"]
     best_margin = profitability.iloc[0]["profit_margin"]
-    best_profit_per_pax = profitability.iloc[0]["profit_per_passenger"]
+    best_passengers = profitability.iloc[0]["passenger_count"]
 
     print(f"\n{'=' * 60}")
     print("PRIMARY RECOMMENDATION")
     print(f"{'=' * 60}")
     print(f"\n✓ Launch first store at {best_airport}")
-    print(f"\nRationale:")
-    print(f"  • Highest net profit: {format_currency(best_profit)}/year")
-    print(
-        f"  • Solid profit margin: {format_percentage(best_margin)} (realistic retail range)"
-    )
-    print(f"  • Strong economics: {format_currency(best_profit_per_pax)}/passenger")
-    print(f"  • Validated through ML predictions on 200K+ passengers")
+    print(f"\nKey Metrics:")
+    print(f"  • Expected annual profit: {format_currency(best_profit)}")
+    print(f"  • Profit margin: {format_percentage(best_margin)}")
+    print(f"  • Passenger volume: {best_passengers:,} per year")
+    print(f"  • Calculation: Revenue - Leasing Costs")
 
-    print(f"\n📋 IMPLEMENTATION STRATEGY:")
-    print(f"  Phase 1 (Months 1-6):  Pilot at {best_airport}")
-    print(f"  Phase 2 (Months 7-9):  Validate assumptions, refine cost model")
-    print(f"  Phase 3 (Months 10+):  Expand to #2 and #3 based on pilot results")
+    print(f"\n📋 EXPANSION STRATEGY:")
+    second_airport = profitability.index[1]
+    third_airport = profitability.index[2]
+
+    print(f"  Phase 1: Launch at {best_airport}")
+    print(
+        f"  Phase 2: Expand to {second_airport} (Profit: {format_currency(profitability.iloc[1]['annual_profit'])})"
+    )
+    print(
+        f"  Phase 3: Expand to {third_airport} (Profit: {format_currency(profitability.iloc[2]['annual_profit'])})"
+    )
 
     print(f"\n⚠️  KEY ASSUMPTIONS:")
-    print(
-        f"  • Gross margin: {GROSS_MARGIN:.0%} (COGS = {1 - GROSS_MARGIN:.0%} of revenue)"
-    )
-    print(f"  • Staff costs: €{STAFF_COST_PER_SQM}/sqm/month")
-    print(f"  • Overhead: {OVERHEAD_PCT:.0%} of revenue")
-    print(f"  • EU passenger behavior generalizes globally")
+    print(f"  • Data represents full year 2019 passenger surveys")
     print(f"  • Category midpoints represent average spending")
-    print(f"  • December 2019 data represents annual patterns")
+    print(f"  • EU spending patterns generalize to worldwide markets")
+    print(f"  • Profit = Revenue - Leasing Costs (as instructed)")
+    print(f"  • Does not include: COGS, staffing, or operational costs")
 
-    print(f"\n⚠️  RISKS & MITIGATION:")
-    print(
-        f"  • COGS variance: Test with {GROSS_MARGIN - 0.05:.0%}-{GROSS_MARGIN + 0.05:.0%} margins"
-    )
-    print(f"  • Demand fluctuation: Monitor monthly vs December baseline")
-    print(f"  • Cultural differences: Adjust product mix by region")
-    print(f"  • Competition: Factor in local market dynamics")
-
-    print(f"\n✓ CONFIDENCE LEVEL:")
-    print(f"  • High confidence in RANKING (relative profitability)")
-    print(f"  • Moderate confidence in ABSOLUTE figures (±15-20%)")
-    print(f"  • Recommend 6-month pilot to calibrate cost assumptions")
+    print(f"\n✓ Model Performance:")
+    avg_confidence = profitability.head(3)["avg_confidence"].mean()
+    print(f"  • Average prediction confidence: {avg_confidence:.1%}")
+    print(f"  • Test accuracy: Available in model metrics")
 
 
 # ============================================================================
@@ -665,11 +494,11 @@ def generate_final_recommendation(profitability):
 def main():
     """Main prediction and profitability analysis pipeline"""
     print("=" * 80)
-    print("DELOITTE CASE STUDY - PREDICTION & PROFITABILITY (REALISTIC P&L)")
+    print("DELOITTE CASE STUDY - PREDICTION & PROFITABILITY ANALYSIS")
     print("=" * 80)
 
     # Step 1: Load model and data
-    print("\n[1/7] Loading model and data...")
+    print("\n[1/5] Loading model and data...")
     model, feature_cols, selector, candidate_features, df_ww = load_model_and_data()
 
     if model is None:
@@ -677,7 +506,7 @@ def main():
         return None
 
     # Step 2: Predict worldwide spending
-    print("\n[2/7] Predicting worldwide spending...")
+    print("\n[2/5] Predicting worldwide spending...")
     df_ww_predictions = predict_worldwide_spending(
         df_ww, model, feature_cols, selector, candidate_features
     )
@@ -687,27 +516,20 @@ def main():
         return None
 
     # Step 3: Calculate revenue
-    print("\n[3/7] Calculating revenue by airport...")
+    print("\n[3/5] Calculating revenue by airport...")
     revenue_by_airport = calculate_revenue_by_airport(df_ww_predictions)
 
-    # Step 4: Calculate realistic profitability
-    print("\n[4/7] Calculating realistic profitability...")
-    profitability = calculate_realistic_profitability(revenue_by_airport)
+    # Step 4: Calculate profitability
+    print("\n[4/5] Calculating profitability...")
+    profitability = calculate_simple_profitability(revenue_by_airport)
 
     if profitability is None:
         print("✗ Cannot proceed without profitability data")
         return None
 
-    # Step 5: Sensitivity analysis
-    print("\n[5/7] Performing sensitivity analysis...")
-    sensitivity_results = perform_sensitivity_analysis(profitability)
-
-    # Step 6: Create visualizations
-    print("\n[6/7] Creating visualizations...")
-    fig = create_profitability_visualizations(profitability, df_ww_predictions)
-
-    # Step 7: Generate recommendation
-    print("\n[7/7] Generating final recommendation...")
+    # Step 5: Create visualizations and recommendation
+    print("\n[5/5] Generating outputs...")
+    create_visualizations(profitability, df_ww_predictions)
     generate_final_recommendation(profitability)
 
     # Summary
@@ -719,7 +541,7 @@ def main():
         f"✓ Expected annual profit: {format_currency(profitability.iloc[0]['annual_profit'])}"
     )
     print(
-        f"✓ Net profit margin: {format_percentage(profitability.iloc[0]['profit_margin'])}"
+        f"✓ Profit margin: {format_percentage(profitability.iloc[0]['profit_margin'])}"
     )
     print(f"✓ Results saved to: {OUTPUT_DIR}")
 
@@ -727,12 +549,9 @@ def main():
         "profitability": profitability,
         "df_ww_predictions": df_ww_predictions,
         "revenue_by_airport": revenue_by_airport,
-        "sensitivity": sensitivity_results,
     }
 
 
 if __name__ == "__main__":
     results = main()
-    print("\n✓ Prediction and profitability analysis complete!")
-    print("\n⚠️  NOTE: Profit margins are now realistic (15-25% range)")
-    print("   This reflects actual retail economics with COGS and OPEX")
+    print("\n✓ Analysis complete!")

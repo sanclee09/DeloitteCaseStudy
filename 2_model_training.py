@@ -1,6 +1,7 @@
 import pickle
 import warnings
-
+import matplotlib.pyplot as plt
+import seaborn as sns
 from sklearn.compose import ColumnTransformer
 from sklearn.model_selection import (
     train_test_split,
@@ -260,7 +261,7 @@ def train_xgboost_no_leakage(df, feature_cols, enable_tuning=None):
 
     # Evaluation
     metrics = evaluate_model(
-        model,  # Just the model, not a pipeline
+        model,
         X_train_selected,
         X_test_selected,
         y_train,
@@ -283,9 +284,6 @@ def evaluate_model(
     model, X_train, X_test, y_train, y_test, model_name, feature_names=None
 ):
     """Evaluate model performance"""
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-
     print_subsection_header(f"{model_name} Evaluation")
 
     y_pred_train = model.predict(X_train)
@@ -376,7 +374,6 @@ def evaluate_model(
     plt.close()
 
     # Feature importance
-    # FIXED: Check if model (not pipeline) has feature_importances_
     if feature_names and hasattr(model, "feature_importances_"):
         print_subsection_header("Feature Importance")
         importance_df = pd.DataFrame(
@@ -462,9 +459,9 @@ def main():
     print_section_header("SAVING MODEL")
 
     model_data = {
-        "model": xgb_model,  # Just the XGBoost model
+        "model": xgb_model,
         "feature_selector": selector,
-        "model_type": "XGBoost with Class Weights (No Preprocessing)",
+        "model_type": "XGBoost with Class Weights",
         "feature_cols": selected_features,
         "candidate_features": candidate_features,
         "metrics": xgb_metrics,
