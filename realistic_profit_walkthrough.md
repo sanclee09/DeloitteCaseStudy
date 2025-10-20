@@ -61,8 +61,9 @@ REVENUE (from ML predictions)
 
 - **Airport:** KUL (Kuala Lumpur International Airport, Malaysia)
 - **Annual Revenue:** €748,195 (from ML predictions)
-- **Store Size:** 47 sqm (from lease terms)
-- **Monthly Lease:** €2,261 (from lease terms)
+- **Store Size:** 119 sqm (from lease terms)
+- **Price per sqm:** €19/month
+- **Monthly Lease:** €2,261 (119 sqm × €19)
 - **Country Data:**
   - Average Monthly Wage: €900
   - Import Duty Rate: 20% (standard)

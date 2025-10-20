@@ -1,3 +1,11 @@
+"""
+1_data_preprocessing.py
+
+Deloitte Case Study - Data Preprocessing Pipeline
+Handles data loading, quality checks, feature engineering, and EDA
+Updated with intelligent missing value imputation
+"""
+
 import pickle
 import warnings
 from sklearn.preprocessing import LabelEncoder, StandardScaler
@@ -19,6 +27,8 @@ def load_all_data():
 
     df_eu = load_csv_with_info(EU_PASSENGERS_FILE, "EU Passengers")
     df_ww = load_csv_with_info(WW_PASSENGERS_FILE, "WW Passengers")
+
+    # Remove duplicates from WW data
     initial_ww_rows = len(df_ww)
     df_ww = df_ww.drop_duplicates().reset_index(drop=True)
     removed = initial_ww_rows - len(df_ww)
@@ -35,6 +45,149 @@ def load_all_data():
 
 
 # ============================================================================
+# MISSING VALUE HANDLING - INTELLIGENT IMPUTATION
+# ============================================================================
+
+
+def handle_primary_flight_missing_values(df, name="Dataset"):
+    """
+    Intelligently impute missing primary flight codes based on journey patterns
+
+    Discovery: Two distinct patterns in missing data
+
+    Case 1: Missing departure_IATA_1
+    - Pattern: All are direct flights (no connection)
+    - Logic: shopped_at ≠ destination_IATA_1
+    - Solution: departure_IATA_1 = shopped_at
+    - Journey: A(shop) → B
+
+    Case 2: Missing destination_IATA_1
+    - Pattern: All have connection flights (destination_IATA_2 exists)
+    - Logic: shopped_at ≠ departure_IATA_1 AND shopped_at ≠ destination_IATA_2
+    - Solution: destination_IATA_1 = shopped_at (layover airport)
+    - Journey: A → B(shop/layover) → C
+
+    Case 3: Missing departure_IATA_2
+    - Pattern: Connection flights where layover wasn't recorded
+    - Logic: departure_IATA_2 = destination_IATA_1 (layover continuity)
+    - Solution: Second leg departs from where first leg arrived
+    """
+    print_subsection_header("Handling Primary Flight Missing Values")
+
+    initial_missing_dep = df["departure_IATA_1"].isnull().sum()
+    initial_missing_dest = df["destination_IATA_1"].isnull().sum()
+
+    # ========================================================================
+    # CASE 1: Missing departure_IATA_1
+    # Pattern: Direct flights where passenger shopped at departure airport
+    # ========================================================================
+    missing_dep_mask = df["departure_IATA_1"].isnull()
+    if missing_dep_mask.sum() > 0:
+        print(f"\n[Case 1] Missing departure_IATA_1: {missing_dep_mask.sum():,} rows")
+
+        # Verify pattern
+        case1_data = df[missing_dep_mask]
+        has_connection = case1_data["destination_IATA_2"].notna().sum()
+        all_direct = has_connection == 0
+        has_dest1 = case1_data["destination_IATA_1"].notna().all()
+
+        print(f"  Verification:")
+        print(f"    ✓ All direct flights (no destination_IATA_2): {all_direct}")
+        print(f"    ✓ All have destination_IATA_1: {has_dest1}")
+
+        # Imputation logic: departure = shopped_at
+        # Journey: shopped_at(departure) → destination_IATA_1
+        df.loc[missing_dep_mask, "departure_IATA_1"] = df.loc[
+            missing_dep_mask, "shopped_at"
+        ]
+
+        print(f"  ✓ Imputed: departure_IATA_1 = shopped_at")
+        print(f"  Logic: Direct flights departing from survey airport")
+
+    # ========================================================================
+    # CASE 2: Missing destination_IATA_1
+    # Pattern: Connection flights where passenger shopped at layover airport
+    # ========================================================================
+    missing_dest_mask = df["destination_IATA_1"].isnull()
+    if missing_dest_mask.sum() > 0:
+        print(
+            f"\n[Case 2] Missing destination_IATA_1: {missing_dest_mask.sum():,} rows"
+        )
+
+        # Verify pattern
+        case2_data = df[missing_dest_mask]
+        all_have_final_dest = case2_data["destination_IATA_2"].notna().all()
+        has_dep1 = case2_data["departure_IATA_1"].notna().all()
+
+        print(f"  Verification:")
+        print(
+            f"    ✓ All have connection flights (destination_IATA_2): {all_have_final_dest}"
+        )
+        print(f"    ✓ All have departure_IATA_1: {has_dep1}")
+
+        # Imputation logic: destination_IATA_1 = shopped_at (layover airport)
+        # Journey: departure_IATA_1 → shopped_at(layover) → destination_IATA_2
+        df.loc[missing_dest_mask, "destination_IATA_1"] = df.loc[
+            missing_dest_mask, "shopped_at"
+        ]
+
+        print(f"  ✓ Imputed: destination_IATA_1 = shopped_at")
+        print(f"  Logic: Connection flights with layover at survey airport")
+
+    # ========================================================================
+    # CASE 3: Missing departure_IATA_2
+    # Pattern: Connection flights where layover airport wasn't recorded
+    # Discovery: These are likely the same passengers from Case 2!
+    # ========================================================================
+    missing_dep2_mask = (
+        df["departure_IATA_2"].isnull() & df["destination_IATA_2"].notna()
+    )
+    if missing_dep2_mask.sum() > 0:
+        print(f"\n[Case 3] Missing departure_IATA_2: {missing_dep2_mask.sum():,} rows")
+
+        # Verify pattern
+        case3_data = df[missing_dep2_mask]
+        has_flight2 = case3_data["flight_number_2"].notna().sum()
+        has_dest1 = case3_data["destination_IATA_1"].notna().all()
+
+        print(f"  Verification:")
+        print(f"    ✓ All have flight_number_2: {has_flight2 == len(case3_data)}")
+        print(f"    ✓ All have destination_IATA_1: {has_dest1}")
+
+        # Imputation logic: departure_IATA_2 = destination_IATA_1
+        # Second leg departs from where first leg arrived (layover continuity)
+        df.loc[missing_dep2_mask, "departure_IATA_2"] = df.loc[
+            missing_dep2_mask, "destination_IATA_1"
+        ]
+
+        print(f"  ✓ Imputed: departure_IATA_2 = destination_IATA_1")
+        print(
+            f"  Logic: Second flight departs from first flight's destination (layover)"
+        )
+
+    # ========================================================================
+    # SUMMARY
+    # ========================================================================
+    total_rows_imputed = initial_missing_dep + initial_missing_dest
+
+    print(f"\n✅ Imputation Summary:")
+    print(f"  Total rows with imputed values: {total_rows_imputed:,}")
+    print(f"    - Case 1 (departure_IATA_1):   {initial_missing_dep:,} rows")
+    print(f"    - Case 2 (destination_IATA_1): {initial_missing_dest:,} rows")
+    print(
+        f"    - Case 3 (departure_IATA_2):   {missing_dep2_mask.sum():,} rows (same as Case 2)"
+    )
+
+    if (
+        df["departure_IATA_1"].isnull().sum() == 0
+        and df["destination_IATA_1"].isnull().sum() == 0
+    ):
+        print(f"\n🎯 Success! All primary flight codes imputed!")
+
+    return df
+
+
+# ============================================================================
 # DATA QUALITY CHECKS
 # ============================================================================
 
@@ -43,8 +196,13 @@ def perform_data_quality_checks(df, name="Dataset"):
     """Comprehensive data quality assessment"""
     print_section_header(f"DATA QUALITY - {name}")
 
-    check_missing_values(df, name)
     check_duplicates(df, name)
+
+    # Intelligent handling of primary flight missing values
+    df = handle_primary_flight_missing_values(df, name)
+
+    # Show missing values AFTER imputation
+    check_missing_values(df, name)
 
     return df
 
@@ -85,7 +243,7 @@ def handle_outliers(df, method="cap", percentile=(1, 99)):
 
 
 # ============================================================================
-# FEATURE ENGINEERING
+# FEATURE ENGINEERING - BASIC FEATURES
 # ============================================================================
 
 
@@ -117,51 +275,51 @@ def engineer_basic_features(df):
     return df
 
 
+# ============================================================================
+# FEATURE ENGINEERING - ADVANCED FEATURES
+# ============================================================================
+
+
 def engineer_advanced_features(df):
-    """Create advanced derived features"""
+    """Create advanced engineered features"""
     print_subsection_header("Advanced Feature Engineering")
 
     df = df.copy()
 
-    # 1. Long-haul flight indicator
+    # 1. Long-haul indicator (>6 hours)
     df["is_long_haul"] = (df["total_flighttime"] > 360).astype(int)
     print("  ✓ Created: is_long_haul")
 
-    # 2. Layover ratio (safer calculation with epsilon)
-    df["layover_ratio"] = df["layover_time"] / (df["total_traveltime"] + 1)
+    # 2. Layover ratio and log
+    df["layover_ratio"] = np.where(
+        df["total_traveltime"] > 0,
+        df["layover_time"] / df["total_traveltime"],
+        0,
+    )
     df["layover_ratio_log"] = np.log1p(df["layover_ratio"])
     print("  ✓ Created: layover_ratio, layover_ratio_log")
 
-    # 3. Layover category (ordinal)
+    # 3. Layover categories
     df["layover_category"] = pd.cut(
         df["layover_time"],
-        bins=LAYOVER_BINS,
-        labels=range(len(LAYOVER_LABELS)),
+        bins=[-np.inf, 0, 60, 180, np.inf],
+        labels=[0, 1, 2, 3],
         include_lowest=True,
     )
-    print("  ✓ Created: layover_category (ordinal)")
+    df["layover_category"] = df["layover_category"].astype("Int64")
+    print("  ✓ Created: layover_category")
 
-    # Business travelers with long flights spend more
+    # 4. Interaction features
     df["business_longhaul"] = df["is_business"] * df["is_long_haul"]
-
-    # Age-business interaction (older business travelers spend more)
     df["age_business"] = df["age"] * df["is_business"]
-
-    # Family travel with luggage (families with heavy luggage shop more)
     df["family_luggage"] = df["has_family"] * df["luggage_weight_kg"]
-
-    # Layover shopping opportunity (long layovers = more shopping time)
-    df["layover_shopping_time"] = df["layover_time"] * (df["layover_time"] > 60).astype(
-        int
+    df["layover_shopping_time"] = df["layover_time"] * df["has_connection"]
+    df["male_business"] = df["is_male"] * df["is_business"]
+    print(
+        "  ✓ Created: business_longhaul, age_business, family_luggage, layover_shopping_time, male_business"
     )
 
-    # Gender-business interaction
-    df["male_business"] = df["is_male"] * df["is_business"]
-
-    print("  ✓ Created: business_longhaul, age_business, family_luggage")
-    print("  ✓ Created: layover_shopping_time, male_business")
-
-    # 5. Flight time bins (categorical spending patterns)
+    # 5. Flight time categories
     df["flight_time_category"] = pd.cut(
         df["total_flighttime"],
         bins=[-np.inf, 180, 360, 600, np.inf],
@@ -171,7 +329,7 @@ def engineer_advanced_features(df):
     df["flight_time_category"] = df["flight_time_category"].astype("Int64")
     print("  ✓ Created: flight_time_category")
 
-    # 6. Age groups (spending patterns vary by age)
+    # 6. Age groups
     df["age_group"] = pd.cut(
         df["age"],
         bins=[0, 25, 35, 50, 65, 100],
@@ -180,13 +338,18 @@ def engineer_advanced_features(df):
     )
     print("  ✓ Created: age_group")
 
-    # 7. Polynomial features for key numerical variables
+    # 7. Polynomial features
     df["age_squared"] = df["age"] ** 2
     df["luggage_squared"] = df["luggage_weight_kg"] ** 2
     df["flighttime_log"] = np.log1p(df["total_flighttime"])
     print("  ✓ Created: age_squared, luggage_squared, flighttime_log")
 
     return df
+
+
+# ============================================================================
+# CATEGORICAL ENCODING
+# ============================================================================
 
 
 def encode_categorical_features(df_eu, df_ww, df_airports):
@@ -270,7 +433,6 @@ def complete_feature_engineering(df_eu, df_ww, df_airports):
     print("\n[3/3] Categorical Encoding")
     df_eu, df_ww, encoder = encode_categorical_features(df_eu, df_ww, df_airports)
 
-    # REMOVED: scaling (will be done in pipeline)
     print(f"\n✓ Feature engineering complete (scaling will be done in model pipeline)")
     print(f"  EU: {len(df_eu.columns)} columns")
     print(f"  WW: {len(df_ww.columns)} columns")
@@ -287,11 +449,11 @@ def perform_eda(df_eu):
     """Perform exploratory data analysis"""
     print_section_header("EXPLORATORY DATA ANALYSIS")
 
-    # 1. Target distribution - spending categories
+    # 1. Target distribution
     print_subsection_header("Target Distribution")
     print_category_distribution(df_eu, "amount_spent_cat", normalize=True)
 
-    # 2. Some spending patterns for binary features
+    # 2. Spending patterns by key groups
     print_subsection_header("Spending by Key Groups")
 
     for group in [
@@ -377,7 +539,7 @@ def main():
     print("\n[1/5] Loading data...")
     df_eu, df_ww, df_airports, df_lease = load_all_data()
 
-    # 2. Data quality checks
+    # 2. Data quality checks (includes smart missing value imputation)
     print("\n[2/5] Data quality checks...")
     df_eu = perform_data_quality_checks(df_eu, "EU Passengers")
     df_ww = perform_data_quality_checks(df_ww, "WW Passengers")

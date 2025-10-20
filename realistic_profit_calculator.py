@@ -1,14 +1,9 @@
-"""
-Realistic Profit Calculator with Country-Specific Economic Factors
-Considers: staff costs, import duties, tax rates, and operational expenses
-"""
-
 import pandas as pd
-import numpy as np
-from config import CATEGORY_MIDPOINTS, GROSS_MARGIN, MONTHS_PER_YEAR
+from config import GROSS_MARGIN, MONTHS_PER_YEAR
 
 # ============================================================================
 # COUNTRY-SPECIFIC ECONOMIC DATA (2019 figures)
+# All data is sourced from OECD 2019 figures and WTO databases to match our reference date of December 31, 2019.
 # ============================================================================
 
 COUNTRY_DATA = {
@@ -122,7 +117,7 @@ def calculate_staff_costs(store_sqm, avg_monthly_wage_eur):
     Calculate monthly staff costs based on store size and local wages
 
     Assumptions:
-    - 1 FTE per 40 sqm of store space
+    - 1 FTE per 40 sqm of store space (industry standards)
     - Add 30% for benefits, training, uniforms
     """
     num_staff = max(2, store_sqm / 40)  # Minimum 2 staff
@@ -237,6 +232,7 @@ def calculate_realistic_profit(
     # 8. PROFIT MARGIN
     profit_margin = (net_profit / annual_revenue * 100) if annual_revenue > 0 else 0
 
+    # Return a comprehensive dictionary with 20 + metrics that provide complete financial transparency.
     return {
         # Revenue
         "annual_revenue": annual_revenue,
@@ -307,7 +303,7 @@ def calculate_profits_for_all_airports(revenue_by_airport, lease_data):
 
         profit_breakdown["airport"] = airport
 
-        # ADD THESE LINES - Preserve passenger_count and avg_confidence from revenue_by_airport
+        # Preserve passenger_count and avg_confidence from revenue_by_airport
         profit_breakdown["passenger_count"] = revenue_by_airport.loc[
             airport, "passenger_count"
         ]
